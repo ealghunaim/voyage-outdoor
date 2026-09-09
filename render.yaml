@@ -1,0 +1,108 @@
+# Voyage Outdoor API — Render blueprint.
+#
+# NOT THE FREE TIER, and the reason is structural rather than about speed.
+# A free service spins down when idle and cold-starts on the next request, and
+# two things here are incompatible with that: a phone opening the locker
+# expects an answer in under a second, and Phase 2 needs a periodic weather
+# refresh, which cannot fire on a process that is not running.
+#
+# `0.5c-512mb` is what used to be called Starter ($7/mo). The word-named plans
+# are gone from the blueprint spec — plans are named by their resources now, so
+# a config copied from an older project fails validation with a plan name that
+# reads perfectly well.
+
+services:
+  - type: web
+    name: voyage-outdoor-api
+    runtime: python
+    plan: 0.5c-512mb
+
+    # ── REGION: CHECK THIS BEFORE THE FIRST DEPLOY ──────────────────────────
+    # It must match the Supabase project's region. Every request this service
+    # serves makes several round trips to Postgres, so an ocean between them is
+    # multiplied by the number of queries per request — a locker read that
+    # fetches an item, its usage and its maintenance pays the crossing three
+    # times.
+    #
+    # Render offers oregon · ohio · virginia · frankfurt · singapore. There is
+    # no Middle East region, so frankfurt is the closest to the Gulf — but
+    # closest to the USER is the wrong axis. Find the project's region in
+    # Supabase → Project Settings → General and match THAT.
+    region: frankfurt
+
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    # $PORT is assigned by Render and is not stable across deploys — binding a
+    # literal port produces a service that builds, starts, and never passes a
+    # health check.
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+
+    # /health is deliberately outside the shared-secret gate (see main.py).
+    # If it were behind the gate, Render would read every deploy as unhealthy
+    # and restart the service in a loop.
+    healthCheckPath: /health
+
+    autoDeployTrigger: commit
+
+    envVars:
+      # Retires the DEV_USER_ID fallback in core/auth.py. That fallback answers
+      # every unauthenticated request with a fixed user id, which is exactly as
+      # bad as it sounds on a public host, and ENV is the whole mechanism that
+      # switches it off.
+      - key: ENV
+        value: production
+
+      # Pinned rather than inherited. Render's default Python moves, and a
+      # runtime that changes under a service during an unrelated deploy is a
+      # failure with no commit to blame.
+      - key: PYTHON_VERSION
+        value: "3.13.14"
+
+      - key: SUPABASE_URL
+        value: https://tebrcqqndpgcbedapwbn.supabase.co
+
+      # sync: false = set in the dashboard, never in this file. The blueprint is
+      # committed; these three are secrets and one of them (the Supabase secret
+      # key) bypasses RLS entirely.
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: APP_SHARED_SECRET
+        sync: false
+
+      # EMPTY IS THE NORMAL STATE. It holds a value only while a released build
+      # still carries the previous key, and leaving one here after adoption is
+      # done quietly doubles the number of keys that open the door.
+      - key: APP_SHARED_SECRET_PREVIOUS
+        sync: false
+
+      - key: AI_DAILY_COST_CAP_USD
+        value: "0.50"
+
+# ── THE SCHEDULER, WHEN PHASE 2 NEEDS ONE ───────────────────────────────────
+#
+# VoyageOS runs its background jobs with APScheduler INSIDE the web process.
+# That works and it costs something specific: `max_instances=1` is per-process,
+# so a second web instance runs every job twice, and the service can never
+# scale horizontally without duplicating its own work. api/main.py has no
+# scheduler for that reason.
+#
+# When the weather refresh lands, it goes here as its own service rather than
+# back into the web process. A cron service runs, does its work and exits, so
+# there is exactly one of it however many web instances exist:
+#
+#   - type: cron
+#     name: voyage-outdoor-weather
+#     runtime: python
+#     plan: 0.5c-512mb
+#     region: frankfurt          # same region as the web service and the DB
+#     schedule: "0 */6 * * *"    # every six hours
+#     buildCommand: pip install -r requirements.txt
+#     startCommand: python -m scripts.weather_tick
+#     envVars:
+#       - fromGroup: voyage-outdoor-secrets
+#
+# Left commented because scripts/weather_tick.py does not exist yet, and a
+# blueprint that references a missing module fails at deploy rather than at
+# review. Uncomment it in the same commit that adds the script.
