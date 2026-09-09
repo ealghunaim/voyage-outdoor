@@ -86,7 +86,7 @@ def test_an_unrecognised_line_returns_none_rather_than_a_guess():
 def test_gear_selection_prefers_a_name_that_echoes_the_requirement():
     locker = [item("a", "Generic lamp", "headlamp", weight_g=50),
               item("b", "Whistle", "safety", weight_g=5)]
-    gear, _ = matching.best_gear_for("Whistle", locker)
+    gear, _, _ = matching.best_gear_for("Whistle", locker)
     assert gear["id"] == "b"
 
 
@@ -94,25 +94,25 @@ def test_gear_selection_prefers_favourites_then_the_lightest():
     locker = [item("heavy", "Heavy lamp", "headlamp", weight_g=300),
               item("light", "Light lamp", "headlamp", weight_g=90),
               item("fav", "Fav lamp", "headlamp", weight_g=200, favorite=True)]
-    gear, _ = matching.best_gear_for("Headlamp", locker)
+    gear, _, _ = matching.best_gear_for("Headlamp", locker)
     assert gear["id"] == "fav"
-    gear, _ = matching.best_gear_for("Headlamp",
-                                     [g for g in locker if g["id"] != "fav"])
+    gear, _, _ = matching.best_gear_for("Headlamp",
+                                        [g for g in locker if g["id"] != "fav"])
     assert gear["id"] == "light"
 
 
 def test_retired_gear_is_never_offered():
     """'You already own one' is exactly wrong for a pair thrown out last year."""
     locker = [item("r", "Old lamp", "headlamp", status="retired", weight_g=50)]
-    gear, category = matching.best_gear_for("Headlamp", locker)
+    gear, category, _ = matching.best_gear_for("Headlamp", locker)
     assert gear is None and category == "headlamp"
 
 
 def test_selection_is_stable_across_row_order():
     a = item("a", "Lamp A", "headlamp", weight_g=100)
     b = item("b", "Lamp B", "headlamp", weight_g=100)
-    first, _ = matching.best_gear_for("Headlamp", [a, b])
-    second, _ = matching.best_gear_for("Headlamp", [b, a])
+    first, _, _ = matching.best_gear_for("Headlamp", [a, b])
+    second, _, _ = matching.best_gear_for("Headlamp", [b, a])
     assert first["id"] == second["id"]
 
 
@@ -425,3 +425,59 @@ def test_no_gear_item_appears_twice_on_a_realistic_pack():
                   night_hours=11), locker, [])
     used = [ln.gear_item_id for ln in result.lines if ln.gear_item_id]
     assert len(used) == len(set(used)), f"duplicated: {used}"
+
+
+# ── a category match is not a name match ────────────────────────────────────
+#
+# Seen on screen: a locker holding a life jacket was told it satisfied
+# "Survival blanket 1.4 x 2 m". Both are `safety`, so the matcher paired them
+# and the reason line asserted it as fact. Reporting a race requirement met
+# when it is not is the failure that surfaces at a kit table on race morning.
+
+def test_a_name_echo_is_stated_as_fact():
+    locker = [item("w", "Whistle", "safety")]
+    result = pack.generate(adventure(mandatory_kit=["Whistle"], distance_km=10),
+                           locker, [])
+    line = next(ln for ln in result.lines if ln.gear_item_id == "w")
+    assert line.reason == "Mandatory kit: Whistle."
+
+
+def test_a_category_only_match_asks_rather_than_asserts():
+    locker = [item("lj", "Life jacket", "safety")]
+    result = pack.generate(
+        adventure(mandatory_kit=["Survival blanket 1.4 x 2 m"], distance_km=10),
+        locker, [])
+    line = next(ln for ln in result.lines if ln.gear_item_id == "lj")
+    assert "check this is the right item" in line.reason
+    assert "Mandatory kit: Survival blanket" not in line.reason
+    # It is still REQUIRED and still critical — the hedge is about the wording,
+    # not about whether the requirement stands.
+    assert line.classification == pack.REQUIRED and line.critical
+
+
+def test_the_matcher_reports_how_it_matched():
+    locker = [item("lj", "Life jacket", "safety"), item("w", "Whistle", "safety")]
+    _, _, confident = matching.best_gear_for("Whistle", locker)
+    assert confident is True
+    _, _, confident = matching.best_gear_for("Survival blanket", locker, {"w"})
+    assert confident is False
+
+
+def test_a_homogeneous_category_match_is_confident():
+    """Any headlamp genuinely answers "Headlamp + spare batteries" — the
+    category holds one kind of object. Hedging here would put a caveat on
+    almost every line, and a caveat that appears everywhere is one nobody
+    reads."""
+    locker = [item("h", "Swift RL", "headlamp", burn_time_h=10)]
+    result = pack.generate(
+        adventure(mandatory_kit=["Headlamp + spare batteries"], distance_km=10),
+        locker, [])
+    line = next(ln for ln in result.lines if ln.gear_item_id == "h")
+    assert line.reason == "Mandatory kit: Headlamp + spare batteries."
+
+
+def test_only_the_grab_bag_categories_hedge():
+    for category in ("headlamp", "jacket", "hydration", "shoes", "vest"):
+        assert category not in matching.HETEROGENEOUS, category
+    for category in ("safety", "electronics"):
+        assert category in matching.HETEROGENEOUS, category

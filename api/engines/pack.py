@@ -254,7 +254,7 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
         # `claimed` is passed, not just written to. Two kit lines in one
         # category — a survival blanket and a whistle are both `safety` — would
         # otherwise both be answered by the same item.
-        gear, category = matching.best_gear_for(line, active, claimed)
+        gear, category, confident = matching.best_gear_for(line, active, claimed)
         if category is None:
             unmatched += 1
             lines.append(PackLine(
@@ -264,10 +264,22 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
             continue
         if gear is not None:
             claimed.add(gear["id"])
+            # A CATEGORY-ONLY MATCH IS PHRASED AS A QUESTION.
+            #
+            # The matcher works at category granularity, so any `safety` item
+            # answers any `safety` line. Stating "Mandatory kit: Survival
+            # blanket" beside a life jacket asserts a match nobody checked.
+            # Where the item's own name echoes the requirement the assertion is
+            # earned; where it does not, the line asks the runner to confirm —
+            # which is what §24's "allow manual verification" is for, and what
+            # the VERIFIED pack state exists to record.
+            reason = (f"Mandatory kit: {line}."
+                      if confident else
+                      f"Matched to the mandatory \u201c{line}\u201d by category — "
+                      f"check this is the right item.")
             lines.append(PackLine(
                 name=gear["name"], classification=REQUIRED,
-                rule_key="mandatory_kit",
-                reason=f"Mandatory kit: {line}.",
+                rule_key="mandatory_kit", reason=reason,
                 category_key=category, gear_item_id=gear["id"],
                 critical=True, source="mandatory"))
         else:

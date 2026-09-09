@@ -63,6 +63,23 @@ KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+#: Categories where one item does NOT stand in for another.
+#:
+#: `headlamp` holds one kind of object, so any headlamp genuinely answers
+#: "Headlamp + spare batteries". `safety` holds survival blankets, whistles,
+#: bivvy bags and ID cards — four unrelated things filed together because none
+#: of them deserves a category of its own. A locker holding a life jacket was
+#: told it satisfied "Survival blanket 1.4 x 2 m", which it does not.
+#:
+#: A match into one of these is reported as UNCONFIRMED so the caller can ask
+#: rather than assert. The distinction is deliberately narrow: hedging every
+#: category match put a caveat on four lines out of five, and a caveat that
+#: appears everywhere is one nobody reads — the same dilution that made the
+#: first draft of the pack engine read like a shopping list.
+HETEROGENEOUS = frozenset({"safety", "electronics", "accessories",
+                           "navigation", "nutrition"})
+
+
 def normalise(text: str) -> str:
     """Lowercase, strip accents, collapse punctuation and whitespace.
 
@@ -114,8 +131,21 @@ def gear_matches_line(gear: dict, line: str) -> bool:
 
 
 def best_gear_for(line: str, locker: list[dict],
-                  exclude: set[str] | None = None) -> tuple[dict | None, str | None]:
-    """(gear, category) for a kit line, preferring what is already owned (§8).
+                  exclude: set[str] | None = None
+                  ) -> tuple[dict | None, str | None, bool]:
+    """(gear, category, confident) for a kit line, preferring what is owned (§8).
+
+    `confident` is False only when the match is genuinely questionable: the
+    item's name does not echo the requirement AND the category is one of the
+    grab-bags in HETEROGENEOUS, where one member does not stand in for another.
+    The caller must then ask rather than assert.
+
+    This matters more than it looks. The table works at category granularity,
+    so any `safety` item answers any `safety` line — and a locker holding a
+    life jacket was told it satisfied "Survival blanket 1.4 x 2 m". It does
+    not. Reporting a race requirement met when it is not is the failure that
+    gets discovered at a kit table on race morning, and it is worth a hedged
+    sentence everywhere else to avoid it here.
 
     `exclude` holds gear already committed to another line, and passing it is
     NOT optional in practice. A mandatory kit list routinely names several
@@ -148,7 +178,7 @@ def best_gear_for(line: str, locker: list[dict],
     """
     category = category_for(line)
     if category is None:
-        return (None, None)
+        return (None, None, False)
 
     taken = exclude or set()
     candidates = [g for g in locker
@@ -156,7 +186,7 @@ def best_gear_for(line: str, locker: list[dict],
                   and g.get("status") == "active"
                   and g["id"] not in taken]
     if not candidates:
-        return (None, category)
+        return (None, category, False)
 
     def rank(gear: dict):
         return (
@@ -167,4 +197,9 @@ def best_gear_for(line: str, locker: list[dict],
             str(gear.get("id") or ""),
         )
 
-    return (sorted(candidates, key=rank)[0], category)
+    best = sorted(candidates, key=rank)[0]
+    # Confident when the name echoes the requirement, OR when the category is
+    # homogeneous enough that any member of it answers the line.
+    confident = (gear_matches_line(best, line)
+                 or category not in HETEROGENEOUS)
+    return (best, category, confident)
