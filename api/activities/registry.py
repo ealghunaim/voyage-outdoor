@@ -41,7 +41,9 @@ TRAIL_RUNNING = {
     "version": SCHEMA_VERSION,
     "gear": {
         "shoes": {
-            "size_eu":          {"type": "string", "label": "Size (EU)"},
+            # No size_eu here — `size` is a built-in column on gear_items and
+            # shoes are in SIZED_CATEGORIES. Two size fields on one form is the
+            # poles bug wearing different clothes.
             "stack_height_mm":  {"type": "int", "label": "Stack height", "unit": "mm", "min": 0, "max": 60},
             "drop_mm":          {"type": "int", "label": "Drop", "unit": "mm", "min": 0, "max": 20},
             "lug_depth_mm":     {"type": "number", "label": "Lug depth", "unit": "mm", "min": 0, "max": 12},
@@ -66,7 +68,6 @@ TRAIL_RUNNING = {
             "flask_slots":  {"type": "int", "label": "Flask slots", "min": 0, "max": 6},
             "bladder_ready": {"type": "bool", "label": "Bladder compatible"},
             "pole_carry":   {"type": "bool", "label": "Pole carry"},
-            "size":         {"type": "string", "label": "Size"},
         },
         "poles": {
             "length_cm": {"type": "int", "label": "Length", "unit": "cm", "min": 90, "max": 140},
@@ -155,8 +156,7 @@ HIKING = {
         "pack":    {"capacity_l": {"type": "number", "label": "Capacity", "unit": "L", "min": 0, "max": 120},
                     "frame": {"type": "enum", "label": "Frame", "options": ["frameless", "internal", "external"]}},
         "boots":   {"height": {"type": "enum", "label": "Height", "options": ["low", "mid", "high"]},
-                    "waterproof": {"type": "bool", "label": "Waterproof"},
-                    "size_eu": {"type": "string", "label": "Size (EU)"}},
+                    "waterproof": {"type": "bool", "label": "Waterproof"}},
         "shelter": {"season": {"type": "enum", "label": "Season", "options": ["1", "2", "3", "4"]},
                     "capacity": {"type": "int", "label": "Sleeps", "min": 1, "max": 8}},
         "sleep":   {"comfort_temp_c": {"type": "number", "label": "Comfort rating", "unit": "°C", "min": -40, "max": 30},
@@ -219,7 +219,6 @@ FLY_FISHING = {
                                  "options": ["floating", "intermediate", "sinking", "sink_tip"]},
                      "weight": {"type": "int", "label": "Line weight", "min": 0, "max": 16}},
         "waders":   {"kind": {"type": "enum", "label": "Type", "options": ["stocking", "boot_foot"]},
-                     "size": {"type": "string", "label": "Size"},
                      "breathable": {"type": "bool", "label": "Breathable"}},
     },
     "adventure": {
@@ -291,6 +290,33 @@ def usage_for(category_key: str | None) -> str:
     return CATEGORY_USAGE.get(category_key or "", DEFAULT_USAGE)
 
 
+# ── which built-in columns a category actually has ──────────────────────────
+#
+# gear_items carries `size` for every row, and the form showed it for every
+# row — so a pair of poles asked for a SIZE, and the owner typed "120cm" into
+# it while the registry was rendering a proper LENGTH field (cm, 90–140) two
+# rows below. Two fields for one measurement, one of them in the wrong
+# vocabulary.
+#
+# Size is a property of things you WEAR. A headlamp has no size; a pole has a
+# length; a flask has a volume — and each of those already exists as a typed,
+# bounded, unit-carrying field in the schema above. The generic column is for
+# the cases where "EU 45" or "M" is genuinely the answer.
+#
+# Same shape as CATEGORY_USAGE and for the same reason: the screen should not
+# be deciding this, and a category that grows a size later changes here.
+SIZED_CATEGORIES = frozenset({
+    "shoes", "socks", "apparel_top", "apparel_bottom", "jacket",
+    "gloves", "headwear", "vest", "gaiters",
+    # future activities, declared with their schemas
+    "boots", "waders",
+})
+
+
+def is_sized(category_key: str | None) -> bool:
+    return (category_key or "") in SIZED_CATEGORIES
+
+
 ACTIVITIES: dict[str, dict] = {
     "trail_running": TRAIL_RUNNING,
     "hiking": HIKING,
@@ -304,6 +330,11 @@ ACTIVITIES: dict[str, dict] = {
 # nothing needs yet and fishing may when a rod's wear is counted in casts.
 for _schema in ACTIVITIES.values():
     _schema["usage"] = {**CATEGORY_USAGE, **_schema.get("usage", {})}
+    # Served so the form knows which built-in columns to offer. A category
+    # absent from this list has no `size`, and the screen must not ask for one.
+    _schema["sized"] = sorted(
+        c for c in set(_schema.get("gear", {})) | set(CATEGORY_USAGE)
+        if c in SIZED_CATEGORIES)
 
 #: The only one with a UI. Everything else is schema-only until Phase 7.
 BUILT = ("trail_running",)

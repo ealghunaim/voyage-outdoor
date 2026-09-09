@@ -21,8 +21,8 @@ from fastapi import HTTPException
 
 from api.activities.registry import (ACTIVITIES, BUILT, CATEGORY_USAGE,
                                      SCHEMA_VERSION, USAGE_DISTANCE, USAGE_NONE,
-                                     USAGE_SESSIONS, adventure_fields, gear_fields,
-                                     schema_for, usage_for)
+                                     USAGE_SESSIONS, SIZED_CATEGORIES, adventure_fields,
+                                     gear_fields, is_sized, schema_for, usage_for)
 from api.activities.validate import (validate_adventure_attributes,
                                      validate_gear_attributes)
 
@@ -242,3 +242,66 @@ def test_every_seeded_gear_category_has_a_usage_kind():
     }
     missing = seeded - set(CATEGORY_USAGE)
     assert not missing, f"no usage kind for {sorted(missing)}"
+
+
+# ── which built-in columns a category has ───────────────────────────────────
+#
+# Seen on screen: the gear form asked a pair of poles for a SIZE, and the owner
+# typed "120cm" into it while the schema was rendering a proper LENGTH field
+# (cm, 90-140) two rows below. Two fields for one measurement, one of them in
+# the wrong vocabulary.
+
+def test_every_schema_lists_its_sized_categories():
+    for activity, schema in ACTIVITIES.items():
+        assert isinstance(schema.get("sized"), list), activity
+
+
+def test_worn_things_have_a_size():
+    for category in ("shoes", "socks", "jacket", "gloves", "vest"):
+        assert is_sized(category), category
+
+
+def test_things_that_are_measured_some_other_way_do_not():
+    """Each of these already has a typed, bounded, unit-carrying field for the
+    dimension that matters — poles a length, hydration a volume, headlamps a
+    burn time. A generic size box beside those asks the same question twice."""
+    for category in ("poles", "headlamp", "hydration", "nutrition",
+                     "navigation", "electronics", "first_aid", "safety"):
+        assert not is_sized(category), category
+
+
+def test_the_sized_list_only_names_categories_that_exist():
+    known = set(CATEGORY_USAGE) | {"boots", "waders"}
+    assert SIZED_CATEGORIES <= known, SIZED_CATEGORIES - known
+
+
+def test_trail_running_serves_its_sized_list():
+    sized = set(schema_for("trail_running")["sized"])
+    assert "shoes" in sized and "poles" not in sized
+
+
+def test_no_sized_category_also_declares_its_own_size_field():
+    """A category cannot have both the built-in `size` column and a size
+    attribute — the form would ask for the same thing twice, which is the poles
+    bug in a different shape. shoes carried `size_eu`, vest and waders carried
+    `size`, boots carried `size_eu`."""
+    duplicates = []
+    for activity, schema in ACTIVITIES.items():
+        for category, fields in (schema.get("gear") or {}).items():
+            if not is_sized(category):
+                continue
+            for name in fields:
+                if "size" in name.lower():
+                    duplicates.append(f"{activity}.{category}.{name}")
+    assert not duplicates, duplicates
+
+
+def test_a_category_measured_by_an_attribute_is_not_also_sized():
+    """The inverse: anything whose defining dimension is a typed schema field
+    must not be offered the generic size box beside it."""
+    measured = {"poles": "length_cm", "hydration": "volume_ml",
+                "headlamp": "burn_time_h"}
+    fields = ACTIVITIES["trail_running"]["gear"]
+    for category, field in measured.items():
+        assert field in fields[category], f"{category}.{field} went missing"
+        assert not is_sized(category), category

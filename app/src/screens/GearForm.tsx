@@ -84,6 +84,16 @@ export default function GearForm({ gearId, onDone, onCancel }: {
     [schema, categoryKey],
   );
 
+  // Does this category have a size at all? Poles have a LENGTH, flasks a
+  // VOLUME, headlamps a BURN TIME — each already a typed, bounded,
+  // unit-carrying field below. Showing a generic size box beside those asks
+  // the same question twice, in the wrong vocabulary, and someone typed
+  // "120cm" into it.
+  //
+  // Before a category is chosen there is nothing to decide, so the field is
+  // shown — it is the only place to put a size for an uncategorised item.
+  const sized = !categoryKey || (schema?.sized ?? []).includes(categoryKey);
+
   const changeCategory = (key: string) => {
     const next = categoryKey === key ? null : key;
     setCategoryKey(next);
@@ -94,6 +104,10 @@ export default function GearForm({ gearId, onDone, onCancel }: {
     const keep = next && schema ? schema.gear[next] ?? {} : {};
     setAttributes(prev => Object.fromEntries(
       Object.entries(prev).filter(([k]) => k in keep)));
+    // Moving into a category with no size clears it, for the same reason
+    // attributes are cleared: a value the form can no longer show is a value
+    // nobody can correct, and it would still be sitting in the record.
+    if (next && !(schema?.sized ?? []).includes(next)) setSize('');
   };
 
   const save = async () => {
@@ -165,9 +179,11 @@ export default function GearForm({ gearId, onDone, onCancel }: {
 
       <Card style={{ gap: S[4] }}>
         <View style={{ flexDirection: 'row', gap: S[3] }}>
-          <View style={{ flex: 1 }}>
-            <Field label="Size" value={size} onChange={setSize} placeholder="EU 45" />
-          </View>
+          {sized && (
+            <View style={{ flex: 1 }}>
+              <Field label="Size" value={size} onChange={setSize} placeholder="EU 45" />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             <Field label="Weight" unit="g" value={weightG}
                    onChange={t => setWeightG(t.replace(/[^0-9]/g, ''))}

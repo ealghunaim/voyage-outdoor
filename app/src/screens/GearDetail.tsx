@@ -169,6 +169,8 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
 
       <Card style={{ gap: S[1] }}>
         <Label>Record</Label>
+        {/* Only when there is one. A blank "Size —" row on a headlamp is a
+            question the record was never going to answer. */}
         {!!g.size && <Row label="Size" value={g.size} />}
         <Row label="Weight" value={weight(g.weight_g)} />
         <Row label="Bought" value={day(g.purchase_date)} />

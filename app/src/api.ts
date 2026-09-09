@@ -37,6 +37,10 @@ export type ActivitySchema = {
   gear: Record<string, Record<string, FieldSpec>>;
   adventure: Record<string, FieldSpec>;
   usage: Record<string, UsageKind>;
+  /** Categories that genuinely have a `size`. Anything absent is measured some
+   *  other way — poles by length, flasks by volume — and must not be offered
+   *  the generic size box beside its real field. */
+  sized: string[];
 };
 
 export type Activity = { key: string; name: string; built: boolean; sort: number };
