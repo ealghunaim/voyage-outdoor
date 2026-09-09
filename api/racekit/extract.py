@@ -57,9 +57,12 @@ class KitItem(BaseModel):
     text: str = Field(description="The item exactly as the page words it, "
                                   "including any specification or minimum.")
     condition: str | None = Field(
-        description="When the item is required, if the page qualifies it "
-                    "(a distance, a weather trigger, a night section). Null if "
-                    "it is required unconditionally.")
+        description="A SHORT label, at most 8 words, for when this item is "
+                    "required — 'cold weather kit', 'over 50km only', 'camp "
+                    "bag', 'night section'. Null if it is required "
+                    "unconditionally. Do not repeat the page's full "
+                    "explanatory sentence here; a runner is reading this "
+                    "beside the item on a phone.")
 
 
 class RaceKit(BaseModel):
@@ -79,6 +82,27 @@ class RaceKit(BaseModel):
         description="Anything a runner should know about how this page was "
                     "read: an ambiguity, a list that looked partial, or that "
                     "the page carried no equipment list at all.")
+
+
+def has_kit_signal(text: str) -> bool:
+    """Is there any sign of an equipment list in this text at all?
+
+    ADDED AFTER POINTING THE FETCHER AT REAL RACE SITES. montblanc.utmb.world
+    returns 5,087 characters of navigation chrome and a list of event dates —
+    the page builds itself in the browser, so the kit list is not in the HTML.
+    That sails past the "came back essentially empty" check, and the model then
+    correctly reports no equipment list, having been paid to read a menu.
+
+    So this is a deterministic gate in front of a paid call: no keyword in any
+    of the languages the narrowing already knows, no extraction. It costs
+    nothing and the message it produces is the true one — "this page needs
+    JavaScript, paste it instead" — rather than the misleading "no equipment
+    list found", which sounds like a fact about the race.
+
+    URL FETCHES ONLY. Someone who has pasted the bullet points of a kit list has
+    already decided what it is, and their paste may not contain the heading.
+    """
+    return bool(KEYWORDS.search(text))
 
 
 def narrow(text: str) -> tuple[str, dict]:

@@ -180,12 +180,27 @@ _ENTITIES = {"&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
              "&ndash;": "–", "&deg;": "°", "&times;": "×", "&hellip;": "…"}
 
 
+def _chr(digits: str, base: int) -> str:
+    try:
+        code = int(digits, base)
+    except ValueError:
+        return ""
+    # Surrogates and out-of-range values raise on chr(); a malformed entity is
+    # not a reason to fail the whole fetch.
+    return chr(code) if 0 < code < 0x110000 and not 0xD800 <= code <= 0xDFFF else ""
+
+
 def html_to_text(html: str) -> str:
     text = _DROP.sub(" ", html)
     text = _BREAK.sub("\n", text)
     text = _TAG.sub(" ", text)
     for entity, char in _ENTITIES.items():
         text = text.replace(entity, char)
-    text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
+    # BOTH numeric forms. The decimal-only version shipped first and left
+    # `&#x27;` sitting in the text of every page that writes apostrophes that
+    # way — which is most of them, and "the organiser&#x27;s number" is a kit
+    # line the model would have transcribed verbatim, entity and all.
+    text = re.sub(r"&#(\d+);", lambda m: _chr(m.group(1), 10), text)
+    text = re.sub(r"&#[xX]([0-9a-fA-F]+);", lambda m: _chr(m.group(1), 16), text)
     lines = [_SPACES.sub(" ", line).strip() for line in text.split("\n")]
     return _BLANK.sub("\n\n", "\n".join(line for line in lines if line)).strip()

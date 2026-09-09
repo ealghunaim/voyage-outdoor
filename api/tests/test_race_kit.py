@@ -114,3 +114,26 @@ def test_truncation_is_reported_rather_than_silent():
     _, stats = extract.narrow(page)
     assert stats["narrowed"] is True
     assert stats["truncated"] is True
+
+
+def test_hex_entities_are_decoded():
+    """Real pages write apostrophes as &#x27;. The decimal-only decoder shipped
+    first and left the entity sitting in kit lines — "the organiser&#x27;s
+    number" is a line a model would transcribe verbatim, entity and all."""
+    assert fetch.html_to_text("<li>the organiser&#x27;s number &#8212; saved</li>") \
+        == "the organiser's number — saved"
+
+
+def test_a_javascript_shell_is_refused_before_a_model_is_paid():
+    """montblanc.utmb.world returns 5,087 characters of navigation and event
+    dates: the page builds itself in the browser. That sails past the
+    'essentially empty' check, and the model then correctly reports no
+    equipment list, having been paid to read a menu."""
+    shell = ("Skip to Content UTMB World Series Events "
+             "Select the event you're interested in " + "Europe 2026 " * 200)
+    assert extract.has_kit_signal(shell) is False
+
+
+def test_a_real_kit_page_passes_the_gate():
+    assert extract.has_kit_signal("... MANDATORY EQUIPMENT ... jacket") is True
+    assert extract.has_kit_signal("... MATÉRIEL OBLIGATOIRE ... veste") is True

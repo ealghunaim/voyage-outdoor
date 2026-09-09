@@ -205,8 +205,16 @@ def test_thinking_stays_on_and_effort_is_the_dial(monkeypatch):
     gateway.complete("ask_outdoor", "sys", "user")
     gateway.complete("race_kit_extract", "sys", "user")
     assert client.calls[0][1]["thinking"] == {"type": "adaptive"}
-    assert client.calls[0][1]["output_config"]["effort"] == "low"
-    assert client.calls[1][1]["output_config"]["effort"] == "high"
+
+    # The ORDERING is the contract, not the two literal words. Reading a race
+    # manual has to be given more room than rewriting one engine sentence.
+    # Which exact level clears that bar is a measurement — extraction moved
+    # high → medium once the same 39 items came back for half the money — and a
+    # test that pins the measurement fails every time someone improves it.
+    ladder = ["low", "medium", "high", "xhigh", "max"]
+    effort = [c[1]["output_config"]["effort"] for c in client.calls]
+    assert all(e in ladder for e in effort)
+    assert ladder.index(effort[1]) > ladder.index(effort[0])
 
 
 def test_ceilings_leave_room_for_thinking_and_text(monkeypatch):

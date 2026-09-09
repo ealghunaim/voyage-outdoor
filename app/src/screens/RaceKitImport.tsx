@@ -125,6 +125,15 @@ export default function RaceKitImport({ adventureId, adventureTitle, onDone, onC
         <View style={{ gap: S[3], paddingTop: S[2] }}>
           <Btn label="Read it" onPress={read} busy={busy}
                disabled={!url.trim() && !paste.trim()} />
+          {/* Measured: a real kit page takes ~25 seconds. A spinner that long
+              with nothing beside it reads as hung, and the second tap costs
+              another read. */}
+          {busy && (
+            <Muted>
+              Reading the whole page and pulling out the equipment. This takes
+              about half a minute — it is not stuck.
+            </Muted>
+          )}
           <Btn kind="quiet" label="Cancel" onPress={onCancel} />
         </View>
       </Screen>

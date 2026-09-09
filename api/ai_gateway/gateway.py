@@ -63,6 +63,19 @@ TASK_ROUTE = {
 #: on a task that does not reward deliberation. Rewriting one engine sentence in
 #: plain language does not; reading a race manual that buries "waterproof jacket
 #: with taped seams, min 10,000mm" inside a table of aid stations does.
+#:
+#: EXTRACTION IS `medium`, MEASURED RATHER THAN ASSUMED. It shipped as `high` on
+#: the reasoning that a race manual is hard to read. Run against the Dragon's
+#: Back Race kit page — 12k characters, 39 mandatory items across four
+#: conditional groups — the two settings returned the SAME 39 items with the
+#: same specifications intact (the 300g minimum on the spare layer, the 1.5L
+#: hydration capacity, the full contents of the blister kit) for $0.095 and 25s
+#: instead of $0.18 and 57s.
+#:
+#: Which makes sense in hindsight: the prompt asks the model to TRANSCRIBE, not
+#: to decide. High effort bought deliberation about a question that was never
+#: open. If a page ever defeats `medium` the extraction's own note field will
+#: say so, and this is a one-word change.
 TASK_EFFORT = {
     "pack_narrative":     "medium",
     "gear_match_explain": "low",
@@ -70,7 +83,7 @@ TASK_EFFORT = {
     "health_explain":     "low",
     "ask_outdoor":        "low",
     "ask_outdoor_deep":   "medium",
-    "race_kit_extract":   "high",
+    "race_kit_extract":   "medium",
 }
 DEFAULT_EFFORT = "low"
 

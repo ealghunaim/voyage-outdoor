@@ -50,10 +50,23 @@ class Settings(BaseSettings):
     #: permanently for the process if the account cannot use the beta.
     ai_server_side_fallback: bool = True
 
-    #: Per user per day. STILL A GUESS — Phase 4 measures it. What is now known:
-    #: thinking tokens bill as output, so a narrative costs more than the same
-    #: text without one. The gateway prints the real figure per call.
-    ai_daily_cost_cap_usd: float = 0.50
+    #: Per user per day. NO LONGER A GUESS — measured in Phase 4 against the
+    #: real API:
+    #:
+    #:     pack narrative          $0.019
+    #:     ask, with a pack        $0.018
+    #:     race kit, pasted list   $0.02
+    #:     race kit, real page     $0.095   (Dragon's Back, 39 items, 12k chars)
+    #:
+    #: RAISED FROM $0.50, which was the pre-measurement guess and turns out to
+    #: be five race imports. Someone planning a season in one sitting hits that,
+    #: and the thing they hit it on is the feature that reads their kit list —
+    #: after which the app tells them to come back tomorrow. A dollar is still
+    #: negligible per user per day and buys ten imports or fifty narratives.
+    #:
+    #: Lower it with AI_DAILY_COST_CAP_USD if that is the wrong trade; every
+    #: call prints its real cost, and ai_runs has the history to argue from.
+    ai_daily_cost_cap_usd: float = 1.00
 
     # --- race-kit import (§24) ---
     #: A URL the user supplies is fetched BY THIS SERVER, which makes it an SSRF

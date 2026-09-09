@@ -89,7 +89,7 @@ services:
         sync: false
 
       - key: AI_DAILY_COST_CAP_USD
-        value: "0.50"
+        value: "1.00"
 
 # ── THE SCHEDULER, WHEN PHASE 2 NEEDS ONE ───────────────────────────────────
 #

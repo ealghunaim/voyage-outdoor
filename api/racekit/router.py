@@ -95,6 +95,15 @@ def create_draft(body: DraftIn, user_id: str = Depends(current_user_id)):
 
     if body.url:
         fetched = fetch.fetch(body.url)
+        if not extract.has_kit_signal(fetched.text):
+            # Refused BEFORE the model call, and with the accurate reason. The
+            # model would have answered "no equipment list on this page", which
+            # sounds like a fact about the race rather than about the fetch.
+            raise HTTPException(
+                422,
+                "That page has no equipment list in it — a lot of race sites "
+                "build their pages in the browser, so there is nothing to read "
+                "here. Open it and paste the equipment section instead.")
         source = {"source_kind": "url", "source_url": fetched.url,
                   "source_sha256": fetched.sha256,
                   "source_chars": len(fetched.text)}

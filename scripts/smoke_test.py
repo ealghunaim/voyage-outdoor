@@ -518,6 +518,12 @@ with httpx.Client(timeout=30) as c:
         "- Mobile phone with the organisation's number saved\n"
         "Recommended: trekking poles.\n")
 
+    # Captured BEFORE the draft. This adventure already carries a kit list typed
+    # in by hand further up, so "the adventure has no kit yet" was never the
+    # assertion worth making — "the draft changed nothing" is.
+    kit_before = (c.get(f"{API}/v1/adventures/{race['id']}", headers=H).json()
+                  .get("attributes", {}).get("mandatory_kit"))
+
     draft_r = c.post(f"{API}/v1/race-kit/drafts", headers=H,
                      json={"text": kit_text, "adventure_id": race["id"]})
 
@@ -543,10 +549,12 @@ with httpx.Client(timeout=30) as c:
         check("a recommendation is not promoted to mandatory",
               not any("pole" in i["text"].lower() for i in items)
               and any("pole" in r.lower() for r in draft["extracted"]["recommended"]))
-        check("nothing was written to the adventure yet",
-              not (c.get(f"{API}/v1/adventures/{race['id']}", headers=H).json()
-                   .get("attributes", {}).get("mandatory_kit")),
-              "a draft is a draft until a human accepts it")
+        kit_after = (c.get(f"{API}/v1/adventures/{race['id']}", headers=H).json()
+                     .get("attributes", {}).get("mandatory_kit"))
+        check("extracting changes nothing on the adventure",
+              kit_after == kit_before,
+              f"still {len(kit_before or [])} line(s) — a draft is a draft "
+              f"until a human accepts it")
 
         accepted = c.post(f"{API}/v1/race-kit/drafts/{draft['id']}/accept",
                           headers=H,
