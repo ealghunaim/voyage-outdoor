@@ -77,9 +77,21 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
 
   const days = wx ?? adv?.weather ?? [];
 
+  //: Attributes that have a card of their own and must not also appear as a
+  //: row in the specs list. `describeAttributes` joins a string_list with
+  //: commas, which for a twenty-one line mandatory kit produced one paragraph
+  //: reading "Running Pack - To carry mandatory kit throughout the race,
+  //: Smartphone - LiveTrail application must be installed…" squeezed into the
+  //: right-hand column of a label/value row, with the label itself wrapping
+  //: mid-word to make room. It is the correct renderer for terrain; it is the
+  //: wrong one for a checklist.
+  const OWN_CARD = ['mandatory_kit'];
+
   const specs = useMemo(() => {
     if (!adv || !schema.data) return [];
-    return describeAttributes(schema.data.adventure, adv.attributes ?? {});
+    const fields = Object.fromEntries(
+      Object.entries(schema.data.adventure).filter(([k]) => !OWN_CARD.includes(k)));
+    return describeAttributes(fields, adv.attributes ?? {});
   }, [adv, schema.data]);
 
   const setStatus = async (status: AdventureStatus) => {
