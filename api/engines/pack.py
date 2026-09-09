@@ -251,7 +251,10 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
         line = str(raw).strip()
         if not line:
             continue
-        gear, category = matching.best_gear_for(line, active)
+        # `claimed` is passed, not just written to. Two kit lines in one
+        # category — a survival blanket and a whistle are both `safety` — would
+        # otherwise both be answered by the same item.
+        gear, category = matching.best_gear_for(line, active, claimed)
         if category is None:
             unmatched += 1
             lines.append(PackLine(

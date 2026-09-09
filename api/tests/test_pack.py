@@ -381,3 +381,47 @@ def test_an_empty_pack_is_not_a_ready_one():
     exists to prevent."""
     r = pack.readiness([])
     assert r["percent"] is None and r["ready"] is False
+
+
+# ── one object, one requirement ─────────────────────────────────────────────
+#
+# Found on live data, not by a test: the Oman kit names a survival blanket AND
+# a whistle, both `safety`, and a locker holding one safety item answered both
+# with it. The pack reported a race requirement satisfied that would have been
+# checked at a kit table.
+
+def test_two_kit_lines_in_one_category_cannot_share_one_item():
+    locker = [item("s1", "Life jacket", "safety")]
+    result = pack.generate(
+        adventure(mandatory_kit=["Survival blanket 1.4 x 2 m", "Whistle"],
+                  distance_km=160), locker, [])
+    safety = [ln for ln in result.lines if ln.category_key == "safety"]
+    assert len(safety) == 2
+    used = [ln.gear_item_id for ln in safety if ln.gear_item_id]
+    assert used == ["s1"], "the one item was claimed twice"
+    assert sum(ln.classification == pack.MISSING for ln in safety) == 1
+
+
+def test_two_items_in_a_category_can_cover_two_lines():
+    locker = [item("s1", "Space blanket", "safety"),
+              item("s2", "Whistle", "safety")]
+    result = pack.generate(
+        adventure(mandatory_kit=["Survival blanket 1.4 x 2 m", "Whistle"],
+                  distance_km=160), locker, [])
+    safety = [ln for ln in result.lines if ln.category_key == "safety"]
+    assert all(ln.classification == pack.REQUIRED for ln in safety)
+    assert sorted(ln.gear_item_id for ln in safety) == ["s1", "s2"]
+
+
+def test_no_gear_item_appears_twice_on_a_realistic_pack():
+    """The general invariant, over a full Oman-shaped kit list."""
+    locker = [item("s1", "Life jacket", "safety"),
+              item("h", "Swift RL", "headlamp", burn_time_h=10),
+              item("j", "Ultra Jacket", "jacket", race_legal=True),
+              item("f", "Soft flask", "hydration", volume_ml=500),
+              item("sh", "Norda 005", "shoes", lug_depth_mm=4.5)]
+    result = pack.generate(
+        adventure(mandatory_kit=OMAN_KIT, distance_km=160, expected_hours=30,
+                  night_hours=11), locker, [])
+    used = [ln.gear_item_id for ln in result.lines if ln.gear_item_id]
+    assert len(used) == len(set(used)), f"duplicated: {used}"

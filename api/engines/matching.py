@@ -113,8 +113,18 @@ def gear_matches_line(gear: dict, line: str) -> bool:
     return any(w in name for w in words)
 
 
-def best_gear_for(line: str, locker: list[dict]) -> tuple[dict | None, str | None]:
+def best_gear_for(line: str, locker: list[dict],
+                  exclude: set[str] | None = None) -> tuple[dict | None, str | None]:
     """(gear, category) for a kit line, preferring what is already owned (§8).
+
+    `exclude` holds gear already committed to another line, and passing it is
+    NOT optional in practice. A mandatory kit list routinely names several
+    things that land in one category — Oman's names a survival blanket AND a
+    whistle, both `safety` — and without this the same item answers both. The
+    locker holds one safety item; the pack claimed it twice and reported the
+    race requirement satisfied. One physical object cannot be in two places,
+    and a list that says otherwise is worse than no list: it reports a
+    requirement met that will be checked at a kit table.
 
     Selection among several candidates in the same category is deterministic
     and stated, so the same locker always produces the same pack:
@@ -140,9 +150,11 @@ def best_gear_for(line: str, locker: list[dict]) -> tuple[dict | None, str | Non
     if category is None:
         return (None, None)
 
+    taken = exclude or set()
     candidates = [g for g in locker
                   if g.get("category_key") == category
-                  and g.get("status") == "active"]
+                  and g.get("status") == "active"
+                  and g["id"] not in taken]
     if not candidates:
         return (None, category)
 
