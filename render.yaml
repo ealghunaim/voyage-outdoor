@@ -66,8 +66,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.13.14"
 
+      # The eu-central-1 project. The first one was in Tokyo and is deleted —
+      # its hostname is NXDOMAIN, so a stale value here fails as a DNS error at
+      # boot rather than as anything that names the cause.
       - key: SUPABASE_URL
-        value: https://tebrcqqndpgcbedapwbn.supabase.co
+        value: https://arrhwtdhhuyeuqqkqgri.supabase.co
 
       # sync: false = set in the dashboard, never in this file. The blueprint is
       # committed; these three are secrets and one of them (the Supabase secret
