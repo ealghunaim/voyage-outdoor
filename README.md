@@ -22,8 +22,15 @@ than one consumer, and have no UI.
 | ✅ | Schema (0001, 0002), activity registry, attribute validation |
 | ✅ | Identity, profile, preferences, the two request gates |
 | ✅ | Gear Locker API — items, usage, maintenance |
-| ⬜ | Expo app: shell, auth, locker screens |
+| ✅ | Expo app — auth, five tabs, locker list/detail/form, light + dark |
+| ⬜ | Apply the migrations to Supabase and run the app against it |
 | ⬜ | Phase 2 Adventures · Phase 3 Smart Pack · Phase 4 AI |
+
+Two amendments from the audit are already in, because both are cheap now and
+expensive in Phase 6: the theme ships as a **light/dark token pair** (VoyageOS
+is light-only and every screen would need revisiting), and a **persisted cache**
+sits under the API client so screens render from disk before the network answers
+(VoyageOS has none — every screen fetches on mount).
 
 ## Layout
 
@@ -51,6 +58,18 @@ hide behind a connection error.
 
 Migrations are applied by pasting them into the Supabase SQL editor, in order,
 then running `.venv/bin/python -m scripts.seed_reference`.
+
+The app:
+
+```bash
+cd app && npm install
+npx expo start                  # needs app.json → extra filled in first
+npm run typecheck && npx eslint .
+```
+
+`app.json → extra` needs `supabaseAnonKey` and, for a deployed build, `apiUrl`
+and `appKey`. Until then the sign-in screen says exactly what is missing rather
+than failing as a network error.
 
 ## The rules that are not negotiable
 

@@ -1,0 +1,209 @@
+import React, { useMemo, useState } from 'react';
+import { Alert, Text, View } from 'react-native';
+
+import {
+  ActivitySchema, GearDetail as GearDetailT, deleteGear, getActivitySchema,
+  getGear, logUsage, updateGear,
+} from '../api';
+import { dropCache, useCached } from '../cache';
+import { describeAttributes } from '../components/AttributeFields';
+import {
+  Banner, Btn, Card, Field, H, Label, Loading, Muted, Pill, Row, Screen,
+} from '../components/ui';
+import { day, distance, duration, since, titleCase, weight } from '../format';
+import { S, T, useTheme } from '../theme';
+
+export default function GearDetail({ gearId, onEdit, onGone }: {
+  gearId: string;
+  onEdit: () => void;
+  onGone: () => void;
+}) {
+  const { P } = useTheme();
+  const item = useCached<GearDetailT>(`gear.${gearId}`, () => getGear(gearId));
+  const schema = useCached<ActivitySchema>('schema.trail_running',
+    () => getActivitySchema('trail_running'));
+
+  const [logging, setLogging] = useState(false);
+  const [logDistance, setLogDistance] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const g = item.data;
+
+  const specs = useMemo(() => {
+    if (!g || !schema.data) return [];
+    const fields = g.category_key ? schema.data.gear[g.category_key] ?? {} : {};
+    return describeAttributes(fields, g.attributes ?? {});
+  }, [g, schema.data]);
+
+  const invalidate = async () => {
+    await Promise.all([dropCache('gear.active'), dropCache('gear.all')]);
+  };
+
+  const addUsage = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const km = parseFloat(logDistance);
+      await logUsage(gearId, {
+        occurred_on: logDate,
+        distance_m: Number.isFinite(km) ? Math.round(km * 1000) : null,
+      });
+      setLogging(false);
+      setLogDistance('');
+      await item.refresh();
+      await invalidate();
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not log that.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setStatus = async (status: 'active' | 'retired') => {
+    setBusy(true);
+    try {
+      await updateGear(gearId, { status });
+      await item.refresh();
+      await invalidate();
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not update that.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete this gear?',
+      'Its usage and maintenance history go with it. Retiring keeps the record and takes it out of your active locker.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Retire instead', onPress: () => setStatus('retired') },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteGear(gearId);
+              await Promise.all([invalidate(), dropCache(`gear.${gearId}`)]);
+              onGone();
+            } catch (e: any) {
+              setError(e?.message ?? 'Could not delete that.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  if (item.loading) return <Loading label="Loading…" />;
+  if (!g) {
+    return (
+      <Screen>
+        <Banner tone="error" text={item.error ?? 'That gear is not available offline.'} />
+        <Btn kind="quiet" label="Back" onPress={onGone} />
+      </Screen>
+    );
+  }
+
+  const retired = g.status !== 'active';
+
+  return (
+    <Screen>
+      {item.stale && <Banner text="Saved copy — reconnecting." />}
+      {!!error && <Banner tone="error" text={error} />}
+
+      <View style={{ gap: S[2] }}>
+        <H>{g.name}</H>
+        <View style={{ flexDirection: 'row', gap: S[2], flexWrap: 'wrap' }}>
+          {!!g.category_key && <Pill label={titleCase(g.category_key)} />}
+          {retired && <Pill label={g.status} tone={P.textMuted} filled />}
+          {g.favorite && <Pill label="Favourite" tone={P.warning} />}
+        </View>
+        {!!(g.brand || g.model) && (
+          <Text style={[T.body, { color: P.textSec }]}>
+            {[g.brand, g.model].filter(Boolean).join(' ')}
+          </Text>
+        )}
+      </View>
+
+      <Card style={{ gap: S[1] }}>
+        <Label>Use</Label>
+        <Row label="Total distance" value={distance(g.totals.distance_m)} />
+        <Row label="Sessions" value={String(g.totals.sessions)} />
+        <Row label="Time" value={duration(g.totals.duration_s)} />
+        <Row label="Last used" value={since(g.totals.last_used_on)} />
+        <Row
+          label="Condition"
+          // NOT computed here. §12: never present an uncertain estimate as a
+          // fact, and a percentage invented at read time is exactly that. The
+          // gear-health engine lands in Phase 3 and will write this column.
+          value={g.condition_pct === null ? 'Not measured yet' : `${g.condition_pct}%`}
+          tone={g.condition_pct === null ? P.textMuted : undefined}
+        />
+      </Card>
+
+      {specs.length > 0 && (
+        <Card style={{ gap: S[1] }}>
+          <Label>Specifications</Label>
+          {specs.map(s => <Row key={s.label} label={s.label} value={s.value} />)}
+        </Card>
+      )}
+
+      <Card style={{ gap: S[1] }}>
+        <Label>Record</Label>
+        {!!g.size && <Row label="Size" value={g.size} />}
+        <Row label="Weight" value={weight(g.weight_g)} />
+        <Row label="Bought" value={day(g.purchase_date)} />
+        {!!g.notes && (
+          <View style={{ paddingTop: S[2] }}>
+            <Text style={[T.body, { color: P.textSec }]}>{g.notes}</Text>
+          </View>
+        )}
+      </Card>
+
+      {logging ? (
+        <Card style={{ gap: S[4] }}>
+          <Label>Log a run</Label>
+          <Field label="Date" value={logDate} onChange={setLogDate} placeholder="YYYY-MM-DD" />
+          <Field label="Distance" unit="km" value={logDistance}
+                 onChange={t => setLogDistance(t.replace(/[^0-9.]/g, ''))}
+                 keyboardType="decimal-pad" placeholder="21.1" />
+          <Btn label="Save" onPress={addUsage} busy={busy} />
+          <Btn kind="quiet" label="Cancel" onPress={() => setLogging(false)} />
+        </Card>
+      ) : (
+        <Btn kind="ghost" label="Log a run" onPress={() => setLogging(true)} />
+      )}
+
+      {g.usage.length > 0 && (
+        <Card style={{ gap: S[2] }}>
+          <Label>History</Label>
+          {g.usage.slice(0, 10).map(u => (
+            <Row key={u.id} label={day(u.occurred_on)} value={distance(u.distance_m)} />
+          ))}
+          {g.usage.length > 10 && <Muted>{g.usage.length - 10} more</Muted>}
+        </Card>
+      )}
+
+      {g.maintenance.length > 0 && (
+        <Card style={{ gap: S[2] }}>
+          <Label>Maintenance</Label>
+          {g.maintenance.map(m => (
+            <Row key={m.id} label={`${titleCase(m.kind)} · ${day(m.occurred_on)}`}
+                 value={m.next_due_on ? `next ${day(m.next_due_on)}` : ''} />
+          ))}
+        </Card>
+      )}
+
+      <View style={{ gap: S[3], paddingTop: S[2] }}>
+        <Btn label="Edit" onPress={onEdit} kind="quiet" />
+        <Btn kind="quiet"
+             label={retired ? 'Return to active locker' : 'Retire'}
+             onPress={() => setStatus(retired ? 'active' : 'retired')} />
+        <Btn kind="quiet" label="Delete" tone={P.danger} onPress={confirmDelete} />
+      </View>
+    </Screen>
+  );
+}

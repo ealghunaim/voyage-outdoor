@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Voyage Outdoor",
+    "slug": "voyage-outdoor",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "voyageoutdoor",
+    "newArchEnabled": true,
+    "_DARK_MODE": "userInterfaceStyle is 'automatic' from the first commit, not from Phase 6. VoyageOS is locked to 'light' and has no dark tokens, so every screen written before a dark pass has to be revisited to add one — the retrofit cost the Phase 0 audit flagged. Here the theme ships as a light/dark PAIR and the OS decides.",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ealghunaim.voyageoutdoor",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.ealghunaim.voyageoutdoor"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      "expo-sqlite"
+    ],
+    "_EXTRA": "apiUrl/supabaseUrl/supabaseAnonKey are the three values that flip between dev and production. appKey and scheme must survive any flip. supabaseAnonKey is the PUBLISHABLE key — designed to ship in a binary; the service key never appears here.",
+    "extra": {
+      "apiUrl": "http://localhost:8000",
+      "appKey": "",
+      "supabaseUrl": "https://tebrcqqndpgcbedapwbn.supabase.co",
+      "supabaseAnonKey": ""
+    }
+  }
+}
