@@ -171,7 +171,7 @@ export function Field({ label, value, onChange, placeholder, secure, keyboardTyp
   onChange: (t: string) => void;
   placeholder?: string;
   secure?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'decimal-pad';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'decimal-pad' | 'url';
   unit?: string;
   multiline?: boolean;
   autoComplete?: 'email' | 'password' | 'password-new' | 'off';
@@ -204,7 +204,12 @@ export function Field({ label, value, onChange, placeholder, secure, keyboardTyp
           onChangeText={onChange}
           placeholder={placeholder}
           placeholderTextColor={P.textMuted}
-          autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
+          // An address field that capitalises its first letter produces
+          // "Https://…" and a request that fails for a reason nobody can see.
+          // Derived from the keyboard rather than a separate prop, so the two
+          // cannot be set inconsistently.
+          autoCapitalize={keyboardType === 'email-address' || keyboardType === 'url'
+                          ? 'none' : 'sentences'}
           autoCorrect={false}
           secureTextEntry={masked}
           keyboardType={keyboardType}

@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 
 import {
-  Classification, Pack as PackT, PackItem, PackState, PackWarningRow,
-  generatePack, getPack, setPackItemState,
+  Classification, Narrative as NarrativeT, Pack as PackT, PackItem, PackState,
+  PackWarningRow, RaceKitDraft, generatePack, getKitProvenance, getNarrative,
+  getPack, setPackItemState, writeNarrative,
 } from '../api';
 import { useCached } from '../cache';
 import {
@@ -35,9 +36,10 @@ const STATE_LABEL: Record<PackState, string> = {
   in_use: 'In use', returned: 'Returned', missing: 'Missing', damaged: 'Damaged',
 };
 
-export default function Pack({ adventureId, title, onBack }: {
+export default function Pack({ adventureId, title, onAsk, onBack }: {
   adventureId: string;
   title: string;
+  onAsk: () => void;
   onBack: () => void;
 }) {
   const { P } = useTheme();
@@ -124,6 +126,11 @@ export default function Pack({ adventureId, title, onBack }: {
 
       <Readiness readiness={r} />
 
+      <KitProvenance adventureId={adventureId}
+                     hasRaceKit={data.items.some(i => i.source === 'mandatory')} />
+
+      <Narrative adventureId={adventureId} />
+
       {data.warnings.length > 0 && (
         <Card style={{ gap: S[3] }}>
           <Label>Worth knowing</Label>
@@ -161,6 +168,9 @@ export default function Pack({ adventureId, title, onBack }: {
       })}
 
       <View style={{ gap: S[3], paddingTop: S[2] }}>
+        {/* Placed here, at the bottom of the list, because that is where the
+            question arrives — after reading the pack, not before it. */}
+        <Btn kind="ghost" label="Ask about this pack" onPress={onAsk} />
         <Btn kind="quiet" label="Rebuild from the rules" busy={busy}
              onPress={() => Alert.alert(
                'Rebuild this pack?',
@@ -175,6 +185,121 @@ export default function Pack({ adventureId, title, onBack }: {
         )}
       </View>
     </Screen>
+  );
+}
+
+/** The written explanation of a pack that was decided without it.
+ *
+ *  THE CARD IS BUILT AROUND ONE RULE: the paragraph never replaces the list. It
+ *  sits under the readiness figure and above the sections, adds nothing to
+ *  them, and every number in it came from the engines. If this whole card fails
+ *  to load — no key, budget spent, Anthropic down — the pack above and below it
+ *  is unchanged, which is why the failure is a quiet line and not a red banner.
+ *
+ *  Generation is a TAP, never a mount. A screen that wrote a paragraph every
+ *  time it appeared would spend a day's budget on scrolling. */
+function Narrative({ adventureId }: { adventureId: string }) {
+  const { P } = useTheme();
+  const cached = useCached<NarrativeT>(`narrative.${adventureId}`,
+                                       () => getNarrative(adventureId));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const write = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      cached.set(await writeNarrative(adventureId));
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not write that.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const n = cached.data;
+  if (cached.loading) return null;
+
+  if (!n?.narrative) {
+    return (
+      <Card style={{ gap: S[3] }}>
+        <Label>In words</Label>
+        <Muted>
+          A short read of this pack — where you stand and what the conditions
+          mean. The list itself is worked out by the rules either way.
+        </Muted>
+        {!!error && <Muted>{error}</Muted>}
+        <Btn kind="ghost" label="Explain this pack" onPress={write} busy={busy} />
+      </Card>
+    );
+  }
+
+  return (
+    <Card style={{ gap: S[3] }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between',
+                     alignItems: 'center' }}>
+        <Label>In words</Label>
+        {n.stale && <Pill label="Out of date" tone={P.warningInk} />}
+      </View>
+
+      <Text style={[T.body, { color: P.textPri, lineHeight: 22 }]}>
+        {n.narrative}
+      </Text>
+
+      {/* Said plainly rather than hidden behind an icon. Everything else on
+          this screen is computed and repeatable; this paragraph is not, and
+          someone deciding what to trust at 5am deserves to know which is
+          which. */}
+      <Muted>
+        {n.stale
+          ? 'Written before you changed the pack — the numbers above are current.'
+          : `Written by ${n.model ?? 'the AI'} from the list above. The pack itself is computed.`}
+      </Muted>
+
+      {!!error && <Muted>{error}</Muted>}
+      <Btn kind="quiet" label={n.stale ? 'Write it again' : 'Refresh'}
+           onPress={write} busy={busy} />
+    </Card>
+  );
+}
+
+/** Where the mandatory kit came from (§24).
+ *
+ *  Shown only when the pack actually has race-kit lines on it, because that is
+ *  when the question arises: eleven critical items nobody can trace back to a
+ *  source is a list you either trust completely or not at all. Fetched lazily
+ *  and silently — a missing provenance record means the kit was typed in by
+ *  hand, which is a legitimate answer and not an error to report. */
+function KitProvenance({ adventureId, hasRaceKit }: {
+  adventureId: string; hasRaceKit: boolean;
+}) {
+  const [row, setRow] = useState<RaceKitDraft | null>(null);
+
+  React.useEffect(() => {
+    if (!hasRaceKit) return;
+    let alive = true;
+    getKitProvenance(adventureId)
+      .then(r => { if (alive) setRow(r); })
+      .catch(() => { /* typed by hand, or offline. Neither is worth a banner. */ });
+    return () => { alive = false; };
+  }, [adventureId, hasRaceKit]);
+
+  if (!hasRaceKit || !row) return null;
+
+  const where = row.source_kind === 'url'
+    ? (row.source_url ?? 'a race page')
+    : 'text you pasted';
+  const when = (row.accepted_at ?? row.fetched_at ?? '').slice(0, 10);
+
+  return (
+    <Card style={{ gap: S[1] }}>
+      <Label>Mandatory kit</Label>
+      <Muted>
+        {[row.race_name, row.edition, row.event].filter(Boolean).join(' · ') ||
+         'Imported'}
+      </Muted>
+      <Muted>Read from {where}{when ? ` on ${when}` : ''}, and confirmed by you.</Muted>
+    </Card>
   );
 }
 

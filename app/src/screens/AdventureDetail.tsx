@@ -35,10 +35,12 @@ const VERB: Record<AdventureStatus, string> = {
   archived: 'Archive',
 };
 
-export default function AdventureDetail({ adventureId, onEdit, onPack, onGone }: {
+export default function AdventureDetail({ adventureId, onEdit, onPack,
+                                          onImportKit, onGone }: {
   adventureId: string;
   onEdit: () => void;
   onPack: (title: string) => void;
+  onImportKit: (title: string) => void;
   onGone: () => void;
 }) {
   const { P } = useTheme();
@@ -123,6 +125,9 @@ export default function AdventureDetail({ adventureId, onEdit, onPack, onGone }:
   }
 
   const oneDay = adv.start_date.slice(0, 10) === adv.end_date.slice(0, 10);
+  // Read straight off the attributes rather than from a derived spec row: this
+  // is a list, and describeAttributes renders it as one joined string.
+  const kit: string[] = (adv.attributes?.mandatory_kit as string[]) ?? [];
 
   return (
     <Screen>
@@ -167,6 +172,30 @@ export default function AdventureDetail({ adventureId, onEdit, onPack, onGone }:
           </View>
         )}
         {!!wxNote && days.length > 0 && <Muted>{wxNote}</Muted>}
+      </Card>
+
+      {/* Kept ABOVE the pack card on purpose: mandatory kit outranks every
+          rule the pack engine runs, so the order on screen is the order of
+          authority. Importing after building a pack rebuilds it anyway. */}
+      <Card style={{ gap: S[3] }}>
+        <Label>Mandatory kit</Label>
+        {kit.length === 0 ? (
+          <Muted>
+            Nothing recorded. If this is a race with a kit list, read it in from
+            the race's own page — those items outrank every other rule, and the
+            pack marks each one critical.
+          </Muted>
+        ) : (
+          <View style={{ gap: S[1] }}>
+            {kit.slice(0, 6).map((line, i) => (
+              <Text key={i} style={[T.body, { color: P.textSec }]}>· {line}</Text>
+            ))}
+            {kit.length > 6 && <Muted>+{kit.length - 6} more</Muted>}
+          </View>
+        )}
+        <Btn kind="ghost"
+             label={kit.length ? 'Re-read the race page' : 'Import from the race page'}
+             onPress={() => onImportKit(adv.title)} />
       </Card>
 
       <Card style={{ gap: S[3] }}>

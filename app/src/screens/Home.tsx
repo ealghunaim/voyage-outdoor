@@ -21,12 +21,13 @@ function greeting(): string {
 }
 
 export default function Home({ onOpenGear, onAddGear, onGearTab,
-                               onOpenAdventure, onPlanAdventure }: {
+                               onOpenAdventure, onPlanAdventure, onAsk }: {
   onOpenGear: (id: string) => void;
   onAddGear: () => void;
   onGearTab: () => void;
   onOpenAdventure: (id: string) => void;
   onPlanAdventure: () => void;
+  onAsk: () => void;
 }) {
   const { P } = useTheme();
   const gear = useCached<GearItem[]>('gear.active', () => listGear({ status: 'active' }));
@@ -163,6 +164,10 @@ export default function Home({ onOpenGear, onAddGear, onGearTab,
           <Btn label="Add your first item" onPress={onAddGear} />
         </Card>
       )}
+
+      {/* Last, and quiet. An assistant offered above someone's actual gear
+          would be the app asking to be talked to rather than used. */}
+      <Btn kind="quiet" label="Ask about your kit" onPress={onAsk} />
     </Screen>
   );
 }

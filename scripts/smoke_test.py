@@ -497,6 +497,126 @@ with httpx.Client(timeout=30) as c:
           c.patch(f"{API}/v1/adventures/{race['id']}/pack/items/{required[0]['id']}",
                   headers=H2, json={"state": "verified"}).status_code == 404)
 
+    # ── Phase 4: the AI layer ──────────────────────────────────────────────
+    #
+    # THIS SECTION SPENDS REAL MONEY when a key is configured, which is why it
+    # is the last thing before teardown and why every call prints its cost. With
+    # no key it still runs: the assertions become "the API says 503 and the pack
+    # is untouched", which is the more important guarantee anyway — everything
+    # below has to be optional, and the only way to know it is is to check.
+    print("\nAI LAYER")
+    ai_on = c.get(f"{API}/health").json().get("ai") is True
+    check("health reports whether AI is configured",
+          "ai" in c.get(f"{API}/health").json(), f"ai={ai_on}")
+
+    kit_text = (
+        "MANDATORY EQUIPMENT — 50km\n"
+        "- Waterproof jacket with taped seams, minimum 10,000mm\n"
+        "- Head torch with spare batteries\n"
+        "- Survival blanket\n"
+        "- Whistle\n"
+        "- Mobile phone with the organisation's number saved\n"
+        "Recommended: trekking poles.\n")
+
+    draft_r = c.post(f"{API}/v1/race-kit/drafts", headers=H,
+                     json={"text": kit_text, "adventure_id": race["id"]})
+
+    if not ai_on:
+        check("with no key, the AI endpoints refuse honestly rather than 500",
+              draft_r.status_code == 503, f"HTTP {draft_r.status_code}")
+        check("and the pack is untouched by their absence",
+              c.get(f"{API}/v1/adventures/{race['id']}/pack",
+                    headers=H).json()["readiness"]["required_total"] > 0)
+        check("the narrative endpoint reports no narrative rather than failing",
+              c.get(f"{API}/v1/adventures/{race['id']}/pack/narrative",
+                    headers=H).json()["narrative"] is None)
+    else:
+        check("a pasted kit list extracts", draft_r.status_code == 201,
+              f"HTTP {draft_r.status_code} {draft_r.text[:160]}")
+        draft = draft_r.json()
+        items = draft["extracted"]["items"]
+        check("every mandatory line came across", len(items) == 5,
+              f"{len(items)}: " + " | ".join(i["text"][:28] for i in items))
+        check("the specification survived transcription",
+              any("10,000" in i["text"] or "10000" in i["text"] for i in items),
+              "the number is what fails a kit check, not the word 'jacket'")
+        check("a recommendation is not promoted to mandatory",
+              not any("pole" in i["text"].lower() for i in items)
+              and any("pole" in r.lower() for r in draft["extracted"]["recommended"]))
+        check("nothing was written to the adventure yet",
+              not (c.get(f"{API}/v1/adventures/{race['id']}", headers=H).json()
+                   .get("attributes", {}).get("mandatory_kit")),
+              "a draft is a draft until a human accepts it")
+
+        accepted = c.post(f"{API}/v1/race-kit/drafts/{draft['id']}/accept",
+                          headers=H,
+                          json={"adventure_id": race["id"],
+                                "items": [i["text"] for i in items[:4]],
+                                "mode": "replace"})
+        check("accepting writes the kit and rebuilds the pack",
+              accepted.status_code == 200, f"HTTP {accepted.status_code}")
+        after = accepted.json()
+        check("only the four ticked lines were taken",
+              len(after["adventure"]["attributes"]["mandatory_kit"]) == 4)
+        mandatory = [i for i in after["pack"]["items"] if i["source"] == "mandatory"]
+        check("the pack now carries the race's kit as critical lines",
+              len(mandatory) == 4 and all(i["critical"] for i in mandatory),
+              f"{len(mandatory)} lines")
+
+        prov = c.get(f"{API}/v1/adventures/{race['id']}/race-kit", headers=H).json()
+        check("provenance is readable from the adventure",
+              prov and prov["status"] == "accepted" and prov["accepted_at"],
+              f"{prov['source_kind']} · {prov.get('race_name')}")
+
+        check("an address that resolves off the public internet is refused",
+              c.post(f"{API}/v1/race-kit/drafts", headers=H,
+                     json={"url": "http://169.254.169.254/latest/meta-data/",
+                           "adventure_id": race["id"]}).status_code == 422,
+              "instance metadata is one typo away from a race URL")
+
+        narr = c.post(f"{API}/v1/adventures/{race['id']}/pack/narrative", headers=H)
+        check("the narrative writes", narr.status_code == 201,
+              f"HTTP {narr.status_code} {narr.text[:160]}")
+        if narr.status_code == 201:
+            body = narr.json()
+            text = body["narrative"]
+            check("it is prose, not a re-listing", len(text.split()) > 25,
+                  f"{len(text.split())} words · ${body.get('cost_usd')}")
+            # §14. The engine deliberately never says "buy"; a narrative that
+            # reintroduced it would undo the rule at the last step.
+            check("it does not turn a gap into a purchase",
+                  not any(w in text.lower() for w in
+                          ("buy ", "purchase", "shop", "order one")),
+                  "§14")
+            check("a second read is stored rather than regenerated",
+                  c.get(f"{API}/v1/adventures/{race['id']}/pack/narrative",
+                        headers=H).json()["narrative"] == text)
+            packed_one = c.patch(
+                f"{API}/v1/adventures/{race['id']}/pack/items/{mandatory[0]['id']}",
+                headers=H, json={"state": "packed"})
+            check("packing an item marks the paragraph out of date",
+                  packed_one.status_code == 200
+                  and c.get(f"{API}/v1/adventures/{race['id']}/pack/narrative",
+                            headers=H).json()["stale"] is True,
+                  "the numbers in it moved")
+
+        answer = c.post(f"{API}/v1/ask", headers=H,
+                        json={"question": "What is on my mandatory kit list?",
+                              "adventure_id": race["id"]})
+        check("ask answers", answer.status_code == 200,
+              f"HTTP {answer.status_code} {answer.text[:160]}")
+        if answer.status_code == 200:
+            a = answer.json()
+            check("and says what it read", a["grounded_in"]["pack"] is True,
+                  f"{a['grounded_in']['gear_items']} items · ${a['cost_usd']}")
+
+        check("another account cannot read this import",
+              c.get(f"{API}/v1/race-kit/drafts/{draft['id']}",
+                    headers=H2).status_code == 404)
+        check("another account cannot write a narrative for this pack",
+              c.post(f"{API}/v1/adventures/{race['id']}/pack/narrative",
+                     headers=H2).status_code == 404)
+
     # ── teardown ───────────────────────────────────────────────────────────
     # Deleting the auth user cascades: profiles.id references auth.users on
     # delete cascade, and every table here hangs off profiles the same way. So

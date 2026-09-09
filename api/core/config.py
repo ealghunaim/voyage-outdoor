@@ -22,17 +22,46 @@ class Settings(BaseSettings):
     dev_user_id: str = ""                # local stand-in for a signed-in user
 
     # --- AI gateway ---
-    # Nothing calls a model until Phase 4. These are here from commit one so the
-    # routing table has somewhere to resolve against and so ai_runs can be wired
-    # before there is anything to log.
     llm_api_key: str = ""
-    model_small: str = "claude-haiku-4-5"
-    model_mid: str = "claude-sonnet-5"
+
+    # EVERY TASK RUNS ON THE SAME MODEL, and the tier is a cost dial that is
+    # currently set to one value.
+    #
+    # The first draft routed one-line explanations to Haiku and the narrative to
+    # Sonnet, which is the reflex from VoyageOS. It is the wrong default here.
+    # Downgrading a model is a decision about output quality, and it belongs to
+    # whoever owns the product, not to a table written before anything had been
+    # measured. So all three tiers resolve to Opus 5 and the lever that actually
+    # varies is EFFORT (gateway.TASK_EFFORT), which cuts thinking spend without
+    # changing which model answers.
+    #
+    # To downgrade, set MODEL_SMALL=claude-haiku-4-5 in the environment. Nothing
+    # in the code changes; the tier table already routes the short explanation
+    # tasks to `small`. The prices below follow the model id, not the tier, so
+    # ai_runs stays correct the moment you do.
+    model_small: str = "claude-opus-5"
+    model_mid: str = "claude-opus-5"
     model_frontier: str = "claude-opus-5"
-    #: Per user per day. VoyageOS runs $0.50 for trip guides; a Smart Pack
-    #: narrative over a full gear locker is a different prompt size and this
-    #: number is a guess until Phase 3/4 measures it. Audit risk #7.
+
+    #: Opus 5's safety classifiers can decline a request outright. With this on,
+    #: the API re-runs the declined request on Anthropic's recommended fallback
+    #: inside the same call rather than handing us a refusal. Off is a supported
+    #: state, not a broken one — the gateway also disables it automatically and
+    #: permanently for the process if the account cannot use the beta.
+    ai_server_side_fallback: bool = True
+
+    #: Per user per day. STILL A GUESS — Phase 4 measures it. What is now known:
+    #: thinking tokens bill as output, so a narrative costs more than the same
+    #: text without one. The gateway prints the real figure per call.
     ai_daily_cost_cap_usd: float = 0.50
+
+    # --- race-kit import (§24) ---
+    #: A URL the user supplies is fetched BY THIS SERVER, which makes it an SSRF
+    #: surface: without a guard, "http://169.254.169.254/" is a request the
+    #: metadata service answers. racekit/fetch.py holds the guard; these are its
+    #: numbers.
+    race_kit_fetch_timeout_s: float = 20.0
+    race_kit_max_bytes: int = 2_000_000
 
     # --- the coarse gate ---
     #: Required on every request except the open paths in main.py. Rotating a

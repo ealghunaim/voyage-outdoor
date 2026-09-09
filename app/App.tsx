@@ -14,6 +14,7 @@ import { TabIcon } from './src/components/icons';
 import AdventureDetail from './src/screens/AdventureDetail';
 import AdventureForm from './src/screens/AdventureForm';
 import Adventures from './src/screens/Adventures';
+import Ask from './src/screens/Ask';
 import GearDetail from './src/screens/GearDetail';
 import GearForm from './src/screens/GearForm';
 import GearLocker from './src/screens/GearLocker';
@@ -22,6 +23,7 @@ import Login from './src/screens/Login';
 import Pack from './src/screens/Pack';
 import { Discover } from './src/screens/Placeholders';
 import Profile from './src/screens/Profile';
+import RaceKitImport from './src/screens/RaceKitImport';
 import { S, T, TAP, useTheme } from './src/theme';
 
 /**
@@ -30,8 +32,14 @@ import { S, T, TAP, useTheme } from './src/theme';
  *   Root (stack)
  *     ├─ Login              — when signed out. Never in the stack beside Tabs.
  *     ├─ Tabs               — Home · Adventures · Gear · Discover · Profile
- *     ├─ AdventureDetail · AdventureForm · Pack
+ *     ├─ AdventureDetail · AdventureForm · Pack · RaceKitImport
+ *     ├─ Ask                — pushed, not a sixth tab (§18 fixes the five)
  *     └─ GearDetail · GearForm
+ *
+ * ASK IS NOT A TAB. §18 fixes the five, and Phase 4 does not get to widen the
+ * navigation because it shipped a feature. It is pushed from Home and from the
+ * Pack screen, which is also where the question a person actually has occurs to
+ * them — an assistant behind a tab is one you have to decide to visit.
  *
  * Detail screens and forms push on the ROOT stack rather than inside their tab,
  * so the tab bar is not present while editing. A form with a tab bar under it
@@ -95,6 +103,7 @@ function TabsScreen({ navigation }: any) {
             onGearTab={() => navigation.navigate('Tabs', { screen: 'Gear' })}
             onOpenAdventure={(id: string) => navigation.navigate('AdventureDetail', { id })}
             onPlanAdventure={() => navigation.navigate('AdventureForm', {})}
+            onAsk={() => navigation.navigate('Ask', {})}
           />
         )}
       </Tabs.Screen>
@@ -204,6 +213,8 @@ export default function App() {
                       onEdit={() => navigation.navigate('AdventureForm', { id: route.params.id })}
                       onPack={(title: string) =>
                         navigation.navigate('Pack', { id: route.params.id, title })}
+                      onImportKit={(title: string) =>
+                        navigation.navigate('RaceKitImport', { id: route.params.id, title })}
                       onGone={() => navigation.goBack()}
                     />
                   )}
@@ -227,7 +238,33 @@ export default function App() {
                              options={{ headerShown: true, title: '' }}>
                   {({ navigation, route }: any) => (
                     <Pack adventureId={route.params.id} title={route.params.title}
+                          onAsk={() => navigation.navigate('Ask', {
+                            id: route.params.id, title: route.params.title })}
                           onBack={() => navigation.goBack()} />
+                  )}
+                </Root.Screen>
+
+                <Root.Screen name="RaceKitImport"
+                             options={{ headerShown: true, title: '' }}>
+                  {({ navigation, route }: any) => (
+                    <RaceKitImport
+                      adventureId={route.params.id}
+                      adventureTitle={route.params.title}
+                      // goBack rather than a push to the pack: the person came
+                      // here from an adventure and the accepted kit is already
+                      // on it, so returning is landing on the result.
+                      onDone={() => navigation.goBack()}
+                      onCancel={() => navigation.goBack()}
+                    />
+                  )}
+                </Root.Screen>
+
+                <Root.Screen name="Ask"
+                             options={{ headerShown: true, title: '' }}>
+                  {({ navigation, route }: any) => (
+                    <Ask adventureId={route.params?.id}
+                         adventureTitle={route.params?.title}
+                         onBack={() => navigation.goBack()} />
                   )}
                 </Root.Screen>
 

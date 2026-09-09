@@ -1,4 +1,15 @@
-"""Voyage Outdoor API — Phase 3: Smart Pack over adventures and the locker.
+"""Voyage Outdoor API — Phase 4: the AI layer over everything Phases 1-3 decide.
+
+WHAT PHASE 4 ADDED, AND WHAT IT DELIBERATELY DID NOT. The narrative, the
+explanations and Ask Outdoor read engine output and write prose. The race-kit
+importer reads a race page and writes a DRAFT. Nothing a model produces reaches
+a classification, a warning, a readiness figure or `products.specs`, and the
+import graph is what enforces it: api/engines/* does not import api/ai/* or
+api/racekit/*, so no model output can reach a decision without a human first
+accepting it (§0.5, §11, §12, §24).
+
+Turn the AI off entirely — no key, budget spent, Anthropic down — and the app
+loses its paragraphs and keeps its pack.
 
 NO BACKGROUND SCHEDULER YET, and that is a decision rather than an omission.
 VoyageOS runs its notification governor and weather job with APScheduler inside
@@ -12,13 +23,15 @@ from fastapi.responses import JSONResponse
 
 from api.activities.router import router as activities_router
 from api.adventures.router import router as adventures_router
+from api.ai.router import router as ai_router
 from api.core.config import settings
 from api.gear.router import router as gear_router
 from api.me.router import router as me_router
 from api.packing.router import router as pack_router
+from api.racekit.router import router as racekit_router
 from api.weather.router import router as weather_router
 
-app = FastAPI(title="Voyage Outdoor API", version="0.3.0")
+app = FastAPI(title="Voyage Outdoor API", version="0.4.0")
 
 #: Paths that do not carry x-voyage-key.
 OPEN_PATHS = ("/health", "/docs", "/openapi.json", "/redoc")
@@ -47,10 +60,14 @@ async def shared_secret_guard(request: Request, call_next):
 
 
 for r in (me_router, activities_router, gear_router, adventures_router,
-          weather_router, pack_router):
+          weather_router, pack_router, ai_router, racekit_router):
     app.include_router(r)
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": "0.3.0", "phase": 3}
+    # `ai` reports whether a key is configured, not whether the last call
+    # worked. The app uses it to decide whether to offer the buttons at all —
+    # a "Explain this pack" button that always 503s is worse than no button.
+    return {"ok": True, "version": "0.4.0", "phase": 4,
+            "ai": bool(settings.llm_api_key)}

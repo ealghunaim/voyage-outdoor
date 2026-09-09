@@ -404,6 +404,89 @@ export const addPackItem = (adventureId: string, body: object): Promise<PackItem
 export const removePackItem = (adventureId: string, itemId: string): Promise<null> =>
   req(`/v1/adventures/${adventureId}/pack/items/${itemId}`, { method: 'DELETE' });
 
+// ── the AI layer (Phase 4) ──────────────────────────────────────────────────
+//
+// EVERY CALL BELOW IS ADDITIVE. None of it feeds a classification, a warning or
+// a readiness figure — those arrive already decided from the engines above. A
+// screen that fails to load a narrative shows a pack; a screen that fails to
+// load a pack shows nothing, and the difference is deliberate.
+
+export type Narrative = {
+  narrative: string | null;
+  /** The pack moved under the paragraph — items packed, or the prompt itself
+   *  changed. Not an error: the text is still what was true when written. */
+  stale: boolean;
+  model: string | null;
+  prompt_version: string | null;
+  generated_at: string | null;
+  cost_usd?: number;
+};
+
+export const getNarrative = (adventureId: string): Promise<Narrative> =>
+  req(`/v1/adventures/${adventureId}/pack/narrative`);
+
+export const writeNarrative = (adventureId: string): Promise<Narrative> =>
+  req(`/v1/adventures/${adventureId}/pack/narrative`, { method: 'POST' });
+
+export type AskAnswer = {
+  answer: string;
+  model: string;
+  cost_usd: number;
+  grounded_in: { gear_items: number; adventures: number; pack: boolean };
+};
+
+export const ask = (question: string, adventureId?: string): Promise<AskAnswer> =>
+  req('/v1/ask', {
+    method: 'POST',
+    body: JSON.stringify({ question, adventure_id: adventureId ?? null }),
+  });
+
+// ── race kit import (§24) ───────────────────────────────────────────────────
+
+export type KitItem = { text: string; condition: string | null };
+
+export type RaceKitDraft = {
+  id: string;
+  status: 'draft' | 'accepted' | 'discarded';
+  adventure_id: string | null;
+  source_kind: 'url' | 'paste';
+  source_url: string | null;
+  source_chars: number | null;
+  fetched_at: string;
+  race_name: string | null;
+  edition: string | null;
+  event: string | null;
+  extracted: {
+    race_name: string | null; edition: string | null; event: string | null;
+    items: KitItem[]; recommended: string[]; note: string | null;
+  };
+  accepted_items: string[] | null;
+  accepted_at: string | null;
+  model: string | null;
+  created_at: string;
+};
+
+export const createKitDraft = (body: { url?: string; text?: string;
+                                       adventure_id?: string }):
+  Promise<RaceKitDraft> =>
+  req('/v1/race-kit/drafts', { method: 'POST', body: JSON.stringify(body) });
+
+export const acceptKitDraft = (draftId: string, adventureId: string,
+                               items: string[], mode: 'replace' | 'append' = 'replace'):
+  Promise<{ adventure: Adventure; pack: Pack; import: RaceKitDraft }> =>
+  req(`/v1/race-kit/drafts/${draftId}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({ adventure_id: adventureId, items, mode }),
+  });
+
+export const discardKitDraft = (draftId: string): Promise<null> =>
+  req(`/v1/race-kit/drafts/${draftId}`, { method: 'DELETE' });
+
+/** Where an adventure's mandatory kit came from. Null when it was typed in by
+ *  hand — which is a legitimate answer, not a missing one. */
+export const getKitProvenance = (adventureId: string): Promise<RaceKitDraft | null> =>
+  req(`/v1/adventures/${adventureId}/race-kit`);
+
 // ── gear usage ──────────────────────────────────────────────────────────────
 
 export const logUsage = (gearId: string, body: object): Promise<UsageEntry> =>
