@@ -1,0 +1,228 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Text, View } from 'react-native';
+
+import {
+  ActivitySchema, AdventureDetail as AdventureT, AdventureStatus, WeatherDay,
+  deleteAdventure, getActivitySchema, getAdventure, refreshWeather,
+  updateAdventure,
+} from '../api';
+import { dropCache, useCached } from '../cache';
+import { describeAttributes } from '../components/AttributeFields';
+import {
+  Banner, Btn, Card, H, Label, Loading, Muted, Pill, Row, Screen,
+} from '../components/ui';
+import { day } from '../format';
+import { S, T, tint, useTheme } from '../theme';
+
+/** What this status may become, mirroring api/adventures/router.py.
+ *  The SERVER decides — this exists so the screen stops offering what it knows
+ *  will be refused, and it must stay a strict subset of TRANSITIONS there. A
+ *  409 is still handled; the point is to make it rare, not to pretend it
+ *  cannot happen. */
+const NEXT: Record<AdventureStatus, AdventureStatus[]> = {
+  draft: ['planned'],
+  planned: ['active', 'completed'],
+  active: ['completed'],
+  completed: [],
+  archived: ['planned'],
+};
+
+const VERB: Record<AdventureStatus, string> = {
+  draft: 'Back to draft',
+  planned: 'Mark as planned',
+  active: 'Start it',
+  completed: 'Mark as done',
+  archived: 'Archive',
+};
+
+export default function AdventureDetail({ adventureId, onEdit, onGone }: {
+  adventureId: string;
+  onEdit: () => void;
+  onGone: () => void;
+}) {
+  const { P } = useTheme();
+  const a = useCached<AdventureT>(`adventure.${adventureId}`,
+    () => getAdventure(adventureId));
+  const schema = useCached<ActivitySchema>('schema.trail_running',
+    () => getActivitySchema('trail_running'));
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [wx, setWx] = useState<WeatherDay[] | null>(null);
+  const [wxNote, setWxNote] = useState<string | null>(null);
+
+  const adv = a.data;
+
+  // Fetched once when the screen opens, and only when there is a location to
+  // fetch for. The GET deliberately does not reach a weather provider — a read
+  // that depends on a third party is a read that fails when they do, and this
+  // screen has to render at a trailhead on one bar.
+  useEffect(() => {
+    if (!adv || adv.lat === null || adv.lng === null) return;
+    let alive = true;
+    refreshWeather(adventureId)
+      .then(r => {
+        if (!alive) return;
+        if (r.days) setWx(r.days);
+        if (r.reason === 'beyond_horizon' || r.reason === 'unavailable') {
+          setWxNote(r.detail ?? null);
+        }
+      })
+      .catch(() => { /* the stored forecast, if any, is already on screen */ });
+    return () => { alive = false; };
+  }, [adventureId, adv?.lat, adv?.lng, adv]);
+
+  const days = wx ?? adv?.weather ?? [];
+
+  const specs = useMemo(() => {
+    if (!adv || !schema.data) return [];
+    return describeAttributes(schema.data.adventure, adv.attributes ?? {});
+  }, [adv, schema.data]);
+
+  const setStatus = async (status: AdventureStatus) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateAdventure(adventureId, { status });
+      await Promise.all([dropCache('adventures.live'), dropCache('adventures.all')]);
+      await a.refresh();
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not update that.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete this adventure?',
+      'Archiving keeps it and takes it out of your list. Deleting is permanent — but any runs you logged against it stay on the gear, because they still happened.',
+      [{ text: 'Cancel', style: 'cancel' },
+       { text: 'Archive instead', onPress: () => setStatus('archived') },
+       { text: 'Delete', style: 'destructive', onPress: async () => {
+           try {
+             await deleteAdventure(adventureId);
+             await Promise.all([dropCache('adventures.live'),
+                                dropCache('adventures.all'),
+                                dropCache(`adventure.${adventureId}`)]);
+             onGone();
+           } catch (e: any) { setError(e?.message ?? 'Could not delete that.'); }
+         } }],
+    );
+  };
+
+  if (a.loading) return <Loading label="Loading…" />;
+  if (!adv) {
+    return (
+      <Screen>
+        <Banner tone="error" text={a.error ?? 'That adventure is not available offline.'} />
+        <Btn kind="quiet" label="Back" onPress={onGone} />
+      </Screen>
+    );
+  }
+
+  const oneDay = adv.start_date.slice(0, 10) === adv.end_date.slice(0, 10);
+
+  return (
+    <Screen>
+      {a.stale && <Banner text="Saved copy — reconnecting." />}
+      {!!error && <Banner tone="error" text={error} />}
+
+      <View style={{ gap: S[2] }}>
+        <H>{adv.title}</H>
+        <View style={{ flexDirection: 'row', gap: S[2], flexWrap: 'wrap' }}>
+          <Pill label={adv.status}
+                tone={adv.status === 'active' ? P.success : P.brand}
+                filled={adv.status === 'active'} />
+          <Pill label="Trail running" />
+        </View>
+        <Text style={[T.body, { color: P.textSec }]}>
+          {oneDay ? day(adv.start_date) : `${day(adv.start_date)} – ${day(adv.end_date)}`}
+          {adv.place_name ? ` · ${adv.place_name}` : ''}
+        </Text>
+      </View>
+
+      {specs.length > 0 && (
+        <Card style={{ gap: S[1] }}>
+          <Label>The run</Label>
+          {specs.map(s => <Row key={s.label} label={s.label} value={s.value} />)}
+        </Card>
+      )}
+
+      <Card style={{ gap: S[3] }}>
+        <Label>Weather</Label>
+        {adv.lat === null ? (
+          <Muted>Add a place to this adventure to get its forecast.</Muted>
+        ) : days.length === 0 ? (
+          <Muted>{wxNote ?? 'No forecast stored yet.'}</Muted>
+        ) : (
+          <View style={{ gap: S[2] }}>
+            {days.map(d => <WeatherRow key={d.id ?? d.forecast_date} d={d} />)}
+            <Muted>
+              {days[0].provider === 'met-no'
+                ? 'MET Norway — no rain probability in this source.'
+                : 'Open-Meteo'}
+            </Muted>
+          </View>
+        )}
+        {!!wxNote && days.length > 0 && <Muted>{wxNote}</Muted>}
+      </Card>
+
+      {/* SMART PACK'S SLOT. Named honestly rather than stubbed with a button
+          that does nothing — §8's classification is deterministic code that
+          does not exist yet, and a disabled "Generate" would imply it does. */}
+      <Card style={{ gap: S[2] }}>
+        <Label>Smart pack</Label>
+        <Muted>
+          Phase 3. The REQUIRED / RECOMMENDED / MISSING classification is
+          rule-based code over this adventure, your locker and the forecast
+          above — no model decides it.
+        </Muted>
+      </Card>
+
+      <View style={{ gap: S[3], paddingTop: S[2] }}>
+        {NEXT[adv.status].map(next => (
+          <Btn key={next} kind={next === 'planned' ? 'primary' : 'ghost'}
+               label={VERB[next]} busy={busy} onPress={() => setStatus(next)} />
+        ))}
+        <Btn kind="quiet" label="Edit" onPress={onEdit} />
+        {adv.status !== 'archived' && (
+          <Btn kind="quiet" label="Archive" onPress={() => setStatus('archived')} />
+        )}
+        <Btn kind="quiet" label="Delete" tone={P.danger} onPress={confirmDelete} />
+      </View>
+    </Screen>
+  );
+}
+
+function WeatherRow({ d }: { d: WeatherDay }) {
+  const { P } = useTheme();
+  const temp = d.temp_min !== null && d.temp_max !== null
+    ? `${Math.round(d.temp_min)}–${Math.round(d.temp_max)}°`
+    : '—';
+  // NULL rain is rendered as an em dash, never as 0%. MET Norway carries no
+  // precipitation probability at all, and printing "0%" would state that rain
+  // is impossible on the strength of a provider having no opinion.
+  const rain = d.precip_prob === null ? '—' : `${Math.round(d.precip_prob)}%`;
+  const wind = d.wind_kph === null ? '—' : `${Math.round(d.wind_kph)} kph`;
+  const cold = d.temp_min !== null && d.temp_min <= 5;
+  const wet = d.precip_prob !== null && d.precip_prob >= 60;
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[3],
+                   paddingVertical: S[1],
+                   backgroundColor: wet || cold ? tint(P.warning, 0.08) : undefined,
+                   borderRadius: 8, paddingHorizontal: wet || cold ? S[2] : 0 }}>
+      <Text style={[T.caption, { color: P.textMuted, width: 62 }]}>
+        {d.forecast_date.slice(5)}
+      </Text>
+      <Text style={[T.body, { color: P.textPri, width: 78 }]}>{temp}</Text>
+      <Text style={[T.caption, { color: wet ? P.warningInk : P.textSec, width: 54 }]}>
+        {rain}
+      </Text>
+      <Text style={[T.caption, { color: P.textSec, flex: 1, textAlign: 'right' }]}>
+        {wind}
+      </Text>
+    </View>
+  );
+}

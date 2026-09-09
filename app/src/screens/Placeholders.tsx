@@ -1,6 +1,6 @@
-// The two tabs that exist in the navigation and not yet in the product.
+// The one tab that exists in the navigation and not yet in the product.
 //
-// They are here rather than hidden because §18 fixes the five tabs, and a
+// It is here rather than hidden because §18 fixes the five tabs, and a
 // navigation shape that changes between phases retrains the user twice. What
 // they must not do is pretend: each one says what it will hold and which phase
 // builds it, which is more useful than a spinner that never resolves.
@@ -23,16 +23,6 @@ function Soon({ title, body, phase }: { title: string; body: string; phase: stri
         <Text style={[T.body, { color: P.textSec }]}>{body}</Text>
       </Card>
     </Screen>
-  );
-}
-
-export function Adventures() {
-  return (
-    <Soon
-      title="Adventures"
-      phase="Phase 2"
-      body="An adventure is the planning object: activity, place, dates, distance, elevation, terrain and the race's mandatory kit. Smart Pack reads from it in Phase 3. The table and its attribute schema already exist — this is the screens."
-    />
   );
 }
 

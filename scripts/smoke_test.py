@@ -221,6 +221,144 @@ with httpx.Client(timeout=30) as c:
                    json={"occurred_on": "2026-09-01", "distance_m": 1000})
     check("cannot log usage against someone else's gear", steal.status_code == 404)
 
+
+    # ── PHASE 2: adventures ────────────────────────────────────────────────
+    print("\nADVENTURES")
+    from datetime import date, timedelta
+    soon = (date.today() + timedelta(days=3)).isoformat()
+    far = (date.today() + timedelta(days=300)).isoformat()
+
+    adv = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running",
+        "title": "Oman by UTMB — 100M",
+        "place_name": "Bidiyah, Oman", "country_code": "OM",
+        "lat": 22.45, "lng": 58.80,
+        "start_date": soon, "end_date": soon,
+        "attributes": {"distance_km": 160, "elevation_gain_m": 9000,
+                       "expected_hours": 30, "technicality": "technical",
+                       "terrain": ["mountain", "technical"],
+                       "night_hours": 11, "aid_stations": 12,
+                       "mandatory_kit": ["Headlamp + spare", "Space blanket",
+                                         "Waterproof jacket", "Whistle"]},
+    })
+    check("adventure created", adv.status_code == 201, f"HTTP {adv.status_code}")
+    adv = adv.json()
+    check("adventure attributes round-tripped",
+          adv["attributes"]["distance_km"] == 160
+          and len(adv["attributes"]["mandatory_kit"]) == 4,
+          f"{adv['attributes']['distance_km']} km, "
+          f"{len(adv['attributes']['mandatory_kit'])} mandatory items")
+    check("a new adventure starts as a draft", adv["status"] == "draft", adv["status"])
+
+    one_day = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Saturday long run",
+        "start_date": soon, "attributes": {"distance_km": 32}}).json()
+    check("end_date defaults to the start", one_day["end_date"] == soon,
+          one_day["end_date"])
+
+    print("\nADVENTURE REFUSALS")
+    unbuilt = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "fishing", "title": "Socotra GT",
+        "start_date": soon, "attributes": {"water_type": "offshore"}})
+    check("a schema-only activity is refused", unbuilt.status_code == 422,
+          f"HTTP {unbuilt.status_code}")
+    missing = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "No distance",
+        "start_date": soon, "attributes": {"elevation_gain_m": 500}})
+    check("the required adventure field is enforced", missing.status_code == 422,
+          str(missing.json().get("detail")))
+    backwards = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Time travel",
+        "start_date": soon, "end_date": date.today().isoformat(),
+        "attributes": {"distance_km": 10}})
+    check("end before start is refused", backwards.status_code == 422)
+
+    print("\nSTATUS MACHINE")
+    planned = c.patch(f"{API}/v1/adventures/{adv['id']}", headers=H,
+                      json={"status": "planned"})
+    check("draft -> planned", planned.status_code == 200
+          and planned.json()["status"] == "planned")
+    done = c.patch(f"{API}/v1/adventures/{adv['id']}", headers=H,
+                   json={"status": "completed"}).json()
+    check("planned -> completed", done["status"] == "completed")
+    back = c.patch(f"{API}/v1/adventures/{adv['id']}", headers=H,
+                   json={"status": "active"})
+    check("completed cannot become active again", back.status_code == 409,
+          back.json().get("detail"))
+    c.patch(f"{API}/v1/adventures/{adv['id']}", headers=H, json={"status": "planned"})
+
+    print("\nPLACES + WEATHER")
+    places = c.get(f"{API}/v1/places", headers=H, params={"q": "Chamonix"})
+    check("place search returns candidates with coordinates",
+          places.status_code == 200 and places.json()
+          and places.json()[0]["lat"] is not None,
+          f"{len(places.json())} results, first is {places.json()[0]['name']}"
+          if places.json() else "none")
+
+    wx = c.post(f"{API}/v1/adventures/{adv['id']}/weather", headers=H)
+    body = wx.json()
+    check("forecast fetched for a near-term adventure",
+          body["reason"] in ("fetched", "fresh") and body.get("days"),
+          f"{body['reason']}, {len(body.get('days') or [])} days from "
+          f"{body.get('provider', 'cache')}")
+    if body.get("days"):
+        d = body["days"][0]
+        check("a forecast day carries real numbers",
+              d["temp_max"] is not None and d["temp_min"] is not None,
+              f"{d['forecast_date']} {d['temp_min']}–{d['temp_max']}°C")
+
+    again = c.post(f"{API}/v1/adventures/{adv['id']}/weather", headers=H).json()
+    check("a second call is served from the cache", again["reason"] == "fresh",
+          again["reason"])
+
+    distant = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Next year",
+        "place_name": "Chamonix", "lat": 45.92, "lng": 6.87,
+        "start_date": far, "attributes": {"distance_km": 171}}).json()
+    beyond = c.post(f"{API}/v1/adventures/{distant['id']}/weather", headers=H).json()
+    check("a date beyond the horizon is a reason, not an error",
+          beyond["reason"] == "beyond_horizon", beyond.get("detail"))
+
+    nowhere = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Somewhere",
+        "start_date": soon, "attributes": {"distance_km": 20}}).json()
+    noloc = c.post(f"{API}/v1/adventures/{nowhere['id']}/weather", headers=H).json()
+    check("an adventure with no place says so", noloc["reason"] == "no_location",
+          noloc.get("detail"))
+
+    print("\nGEAR ON AN ADVENTURE")
+    c.post(f"{API}/v1/gear/{shoe['id']}/usage", headers=H,
+           json={"occurred_on": date.today().isoformat(), "distance_m": 16000,
+                 "adventure_id": adv["id"]})
+    detail = c.get(f"{API}/v1/adventures/{adv['id']}", headers=H).json()
+    check("usage logged against the adventure appears on it",
+          len(detail["usage"]) == 1, f"{len(detail['usage'])} entries")
+    stolen = c.post(f"{API}/v1/gear/{shoe['id']}/usage", headers=H,
+                    json={"occurred_on": date.today().isoformat(),
+                          "adventure_id": distant["id"], "distance_m": 1})
+    check("usage can attach to any adventure you own", stolen.status_code == 201)
+
+    print("\nADVENTURE ISOLATION")
+    check("another account cannot read it",
+          c.get(f"{API}/v1/adventures/{adv['id']}", headers=H2).status_code == 404)
+    check("another account cannot patch it",
+          c.patch(f"{API}/v1/adventures/{adv['id']}", headers=H2,
+                  json={"title": "mine now"}).status_code == 404)
+    check("their adventure list is empty",
+          c.get(f"{API}/v1/adventures", headers=H2).json() == [])
+    check("their usage cannot name your adventure",
+          c.post(f"{API}/v1/gear/{shoe['id']}/usage", headers=H2,
+                 json={"occurred_on": date.today().isoformat(),
+                       "adventure_id": adv["id"]}).status_code == 404)
+
+    print("\nDELETING AN ADVENTURE KEEPS THE MILEAGE")
+    before = c.get(f"{API}/v1/gear/{shoe['id']}", headers=H).json()["totals"]["distance_m"]
+    c.delete(f"{API}/v1/adventures/{adv['id']}", headers=H)
+    after = c.get(f"{API}/v1/gear/{shoe['id']}", headers=H).json()["totals"]["distance_m"]
+    check("the run still happened after its adventure is gone",
+          before == after and after > 0,
+          f"{after / 1000:.1f} km before and after")
+
     # ── teardown ───────────────────────────────────────────────────────────
     # Deleting the auth user cascades: profiles.id references auth.users on
     # delete cascade, and every table here hangs off profiles the same way. So

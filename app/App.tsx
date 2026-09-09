@@ -11,12 +11,15 @@ import {
 import { setAuthFailHandler } from './src/api';
 import { loadSession } from './src/auth';
 import { TabIcon } from './src/components/icons';
+import AdventureDetail from './src/screens/AdventureDetail';
+import AdventureForm from './src/screens/AdventureForm';
+import Adventures from './src/screens/Adventures';
 import GearDetail from './src/screens/GearDetail';
 import GearForm from './src/screens/GearForm';
 import GearLocker from './src/screens/GearLocker';
 import Home from './src/screens/Home';
 import Login from './src/screens/Login';
-import { Adventures, Discover } from './src/screens/Placeholders';
+import { Discover } from './src/screens/Placeholders';
 import Profile from './src/screens/Profile';
 import { S, T, TAP, useTheme } from './src/theme';
 
@@ -26,12 +29,17 @@ import { S, T, TAP, useTheme } from './src/theme';
  *   Root (stack)
  *     ├─ Login              — when signed out. Never in the stack beside Tabs.
  *     ├─ Tabs               — Home · Adventures · Gear · Discover · Profile
- *     ├─ GearDetail
- *     └─ GearForm
+ *     ├─ AdventureDetail · AdventureForm
+ *     └─ GearDetail · GearForm
  *
- * Gear detail and the add/edit form push on the ROOT stack rather than inside
- * the Gear tab, so the tab bar is not present while editing. A form with a tab
- * bar under it offers two contradictory ways out of an unsaved change.
+ * Detail screens and forms push on the ROOT stack rather than inside their tab,
+ * so the tab bar is not present while editing. A form with a tab bar under it
+ * offers two contradictory ways out of an unsaved change.
+ *
+ * Both details are reachable from two tabs — Home links to the next adventure
+ * and to recent gear — which is the other reason they live on the root rather
+ * than inside one tab's stack: a screen owned by a tab can only be pushed from
+ * that tab.
  *
  * Auth screens and app screens are never both mounted. Signing out therefore
  * cannot leave a locker screen underneath a login form, which a navigate()
@@ -84,11 +92,20 @@ function TabsScreen({ navigation }: any) {
             // called 'Gear' — that name only exists inside Tabs. Calling it
             // directly threw a NAVIGATE error and left the button dead.
             onGearTab={() => navigation.navigate('Tabs', { screen: 'Gear' })}
+            onOpenAdventure={(id: string) => navigation.navigate('AdventureDetail', { id })}
+            onPlanAdventure={() => navigation.navigate('AdventureForm', {})}
           />
         )}
       </Tabs.Screen>
 
-      <Tabs.Screen name="Adventures" component={Adventures} />
+      <Tabs.Screen name="Adventures">
+        {() => (
+          <Adventures
+            onOpen={(id: string) => navigation.navigate('AdventureDetail', { id })}
+            onCreate={() => navigation.navigate('AdventureForm', {})}
+          />
+        )}
+      </Tabs.Screen>
 
       <Tabs.Screen name="Gear">
         {() => (
@@ -176,6 +193,31 @@ export default function App() {
                     setter through three layers of navigator props. */}
                 <Root.Screen name="SignedOut">
                   {() => { setAuthed(false); return null; }}
+                </Root.Screen>
+
+                <Root.Screen name="AdventureDetail"
+                             options={{ headerShown: true, title: '' }}>
+                  {({ navigation, route }: any) => (
+                    <AdventureDetail
+                      adventureId={route.params.id}
+                      onEdit={() => navigation.navigate('AdventureForm', { id: route.params.id })}
+                      onGone={() => navigation.goBack()}
+                    />
+                  )}
+                </Root.Screen>
+
+                <Root.Screen name="AdventureForm"
+                             options={{ headerShown: true, title: '' }}>
+                  {({ navigation, route }: any) => (
+                    <AdventureForm
+                      adventureId={route.params?.id}
+                      onDone={(id: string) => {
+                        if (route.params?.id) navigation.goBack();
+                        else navigation.replace('AdventureDetail', { id });
+                      }}
+                      onCancel={() => navigation.goBack()}
+                    />
+                  )}
                 </Root.Screen>
 
                 <Root.Screen name="GearDetail"

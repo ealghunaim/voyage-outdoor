@@ -94,6 +94,66 @@ export type GearDetail = GearItem & {
   };
 };
 
+export type AdventureStatus =
+  'draft' | 'planned' | 'active' | 'completed' | 'archived';
+
+export type Adventure = {
+  id: string;
+  activity_key: string;
+  subtype: string | null;
+  title: string;
+  place_name: string | null;
+  country_code: string | null;
+  lat: number | null;
+  lng: number | null;
+  start_date: string;
+  end_date: string;
+  status: AdventureStatus;
+  attributes: Record<string, any>;
+  created_at: string;
+};
+
+export type WeatherDay = {
+  id: string;
+  forecast_date: string;
+  temp_min: number | null;
+  temp_max: number | null;
+  /** NULL means the provider has no opinion, NOT that rain is impossible.
+   *  MET Norway carries no precipitation probability at all, so anything
+   *  reading this must render null as "—" rather than as 0%. */
+  precip_prob: number | null;
+  wind_kph: number | null;
+  uv: number | null;
+  provider: string;
+  fetched_at: string;
+};
+
+export type AdventureDetail = Adventure & {
+  weather: WeatherDay[];
+  usage: any[];
+};
+
+export type Place = {
+  name: string;
+  admin: string | null;
+  country: string | null;
+  country_code: string | null;
+  lat: number;
+  lng: number;
+  elevation_m: number | null;
+};
+
+/** Why a weather refresh produced nothing, when it produced nothing.
+ *  Each of these is an ordinary state rather than a failure, which is why the
+ *  server answers with a reason instead of an error code. */
+export type WeatherResult = {
+  stored: number;
+  reason: 'fetched' | 'fresh' | 'no_location' | 'beyond_horizon' | 'unavailable';
+  detail?: string;
+  provider?: string;
+  days?: WeatherDay[];
+};
+
 export type Me = {
   profile: { id: string; email: string | null; name: string | null;
              unit_system: 'metric' | 'imperial'; locale: string } | null;
@@ -207,6 +267,32 @@ export const updateGear = (id: string, body: object): Promise<GearItem> =>
 
 export const deleteGear = (id: string): Promise<null> =>
   req(`/v1/gear/${id}`, { method: 'DELETE' });
+
+// ── adventures ──────────────────────────────────────────────────────────────
+
+export const listAdventures = (opts: { status?: AdventureStatus | 'all';
+                                       upcoming?: boolean } = {}):
+  Promise<Adventure[]> => req(`/v1/adventures${qs(opts)}`);
+
+export const getAdventure = (id: string): Promise<AdventureDetail> =>
+  req(`/v1/adventures/${id}`);
+
+export const createAdventure = (body: object): Promise<Adventure> =>
+  req('/v1/adventures', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateAdventure = (id: string, body: object): Promise<Adventure> =>
+  req(`/v1/adventures/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export const deleteAdventure = (id: string): Promise<null> =>
+  req(`/v1/adventures/${id}`, { method: 'DELETE' });
+
+export const searchPlaces = (q: string): Promise<Place[]> =>
+  req(`/v1/places${qs({ q })}`);
+
+export const refreshWeather = (id: string, force = false): Promise<WeatherResult> =>
+  req(`/v1/adventures/${id}/weather${qs({ force })}`, { method: 'POST' });
+
+// ── gear usage ──────────────────────────────────────────────────────────────
 
 export const logUsage = (gearId: string, body: object): Promise<UsageEntry> =>
   req(`/v1/gear/${gearId}/usage`, { method: 'POST', body: JSON.stringify(body) });

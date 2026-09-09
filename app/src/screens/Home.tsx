@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
-import { GearItem, listGear } from '../api';
+import { Adventure, GearItem, listAdventures, listGear } from '../api';
 import { useCached } from '../cache';
 import {
-  Banner, Btn, Card, Label, Loading, Muted, Row, Screen,
+  Banner, Btn, Card, Label, Loading, Muted, Pill, Row, Screen,
 } from '../components/ui';
-import { titleCase, weight } from '../format';
+import { day, titleCase, weight } from '../format';
 import { S, T, useTheme } from '../theme';
 
 function greeting(): string {
@@ -17,13 +17,27 @@ function greeting(): string {
   return 'Good evening';
 }
 
-export default function Home({ onOpenGear, onAddGear, onGearTab }: {
+export default function Home({ onOpenGear, onAddGear, onGearTab,
+                               onOpenAdventure, onPlanAdventure }: {
   onOpenGear: (id: string) => void;
   onAddGear: () => void;
   onGearTab: () => void;
+  onOpenAdventure: (id: string) => void;
+  onPlanAdventure: () => void;
 }) {
   const { P } = useTheme();
   const gear = useCached<GearItem[]>('gear.active', () => listGear({ status: 'active' }));
+  const adventures = useCached<Adventure[]>('adventures.live', () => listAdventures());
+
+  /** The soonest one that has not finished. Not simply the first row: the list
+   *  arrives ordered by start date, and an adventure that started yesterday
+   *  and ends tomorrow is more "next" than one three weeks out. */
+  const next = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (adventures.data ?? [])
+      .filter(a => a.end_date >= today && a.status !== 'completed')
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))[0] ?? null;
+  }, [adventures.data]);
 
   // Memoised on gear.data rather than on a `?? []` expression: the fallback
   // array is a new object every render, so it would invalidate the memo every
@@ -53,15 +67,35 @@ export default function Home({ onOpenGear, onAddGear, onGearTab }: {
 
       {gear.stale && <Banner text="Saved copy — reconnecting." />}
 
-      {/* NEXT ADVENTURE — §17's first card, and honestly empty until Phase 2.
-          A fake card here would be the demo-data assumption §28 warns about. */}
-      <Card style={{ gap: S[3] }}>
-        <Label>Next adventure</Label>
-        <Text style={[T.body, { color: P.textSec }]}>
-          Adventures arrive in Phase 2. When they do, this is where the next one
-          sits — with its weather, its pack readiness and its mandatory kit.
-        </Text>
-      </Card>
+      {/* NEXT ADVENTURE — §17's first card. Empty is a real state, not a
+          placeholder: someone with nothing planned should be invited to plan
+          something rather than shown a fabricated example. */}
+      {next ? (
+        <Card onPress={() => onOpenAdventure(next.id)}>
+          <View style={{ gap: S[2] }}>
+            <Label>Next adventure</Label>
+            <Text style={[T.h2, { color: P.textPri }]}>{next.title}</Text>
+            <View style={{ flexDirection: 'row', gap: S[2], flexWrap: 'wrap',
+                           alignItems: 'center' }}>
+              <Pill label={day(next.start_date)} tone={P.brand} />
+              {!!next.attributes?.distance_km &&
+                <Pill label={`${next.attributes.distance_km} km`} />}
+              {!!next.attributes?.elevation_gain_m &&
+                <Pill label={`${next.attributes.elevation_gain_m} m+`} />}
+            </View>
+            {!!next.place_name && <Muted>{next.place_name}</Muted>}
+          </View>
+        </Card>
+      ) : (
+        <Card style={{ gap: S[3] }}>
+          <Label>Next adventure</Label>
+          <Text style={[T.body, { color: P.textSec }]}>
+            Nothing planned. An adventure is what everything else works from —
+            what to pack, which shoes, what the weather is doing.
+          </Text>
+          <Btn kind="ghost" label="Plan an adventure" onPress={onPlanAdventure} />
+        </Card>
+      )}
 
       <Card style={{ gap: S[1] }}>
         <Label>Gear locker</Label>
