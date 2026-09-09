@@ -31,6 +31,17 @@ SEC = settings.supabase_service_key
 PUB = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
 API = os.environ.get("SMOKE_API_URL", "http://localhost:8000")
 
+#: The coarse gate's key, sent as x-voyage-key on every request.
+#:
+#: BLANK IS CORRECT LOCALLY and wrong against a deployment. With no key
+#: configured the middleware leaves the gate open, so a local run needs
+#: nothing; a deployed service refuses every request without it, and the
+#: failure looks like a broken response shape rather than a missing header —
+#: this run died on KeyError: 'profile' because /v1/me had answered
+#: {"detail": "unauthorized"}.
+APP_KEY = os.environ.get("SMOKE_APP_KEY") or settings.app_shared_secret
+GATE = {"x-voyage-key": APP_KEY} if APP_KEY else {}
+
 PASSWORD = "smoke-test-160km"
 EMAIL = "smoke-owner@voyageoutdoor.test"
 OTHER = "smoke-other@voyageoutdoor.test"
@@ -72,8 +83,21 @@ with httpx.Client(timeout=30) as c:
     session = r.json()
     uid = session["user"]["id"]
     H = {"Authorization": f"Bearer {session['access_token']}",
-         "Content-Type": "application/json"}
+         "Content-Type": "application/json", **GATE}
     print(f"\nsigned in as {EMAIL}\n  user id {uid}\n")
+
+    print(f"api: {API}")
+    print(f"gate: {'on — sending x-voyage-key' if GATE else 'off (no key configured)'}\n")
+
+    if GATE:
+        # Worth asserting rather than assuming: a deployment whose gate is off
+        # is open to anyone who finds the URL, and it looks identical to a
+        # working one from the outside.
+        bare = c.get(f"{API}/v1/activities",
+                     headers={"Authorization": f"Bearer {session['access_token']}"})
+        check("the gate refuses a request with no app key",
+              bare.status_code == 401 and bare.json().get("detail") == "unauthorized",
+              f"HTTP {bare.status_code}")
 
     # ── identity: the profile row must be auto-provisioned on first sight ───
     print("IDENTITY")
@@ -213,7 +237,7 @@ with httpx.Client(timeout=30) as c:
                 headers={"apikey": PUB, "Content-Type": "application/json"},
                 json={"email": OTHER, "password": PASSWORD})
     H2 = {"Authorization": f"Bearer {r2.json()['access_token']}",
-          "Content-Type": "application/json"}
+          "Content-Type": "application/json", **GATE}
     other = c.get(f"{API}/v1/gear/{shoe['id']}", headers=H2)
     check("another account gets 404, not 403", other.status_code == 404,
           f"HTTP {other.status_code} · {other.json().get('detail')}")

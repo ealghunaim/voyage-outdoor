@@ -25,8 +25,8 @@
     ],
     "_EXTRA": "apiUrl/supabaseUrl/supabaseAnonKey are the three values that flip between dev and production. appKey and scheme must survive any flip. supabaseAnonKey holds the PUBLISHABLE key (sb_publishable_…) — designed to ship in a binary, and it cannot read a table: PostgREST now refuses it outright, so the only thing it opens is /auth/v1. The SECRET key (sb_secret_…) never appears in this file, in the app, or in any build.",
     "extra": {
-      "apiUrl": "http://localhost:8000",
-      "appKey": "",
+      "apiUrl": "https://voyage-outdoor-api.onrender.com",
+      "appKey": "58767068edb0a8d6cd5a58b62e934441",
       "supabaseUrl": "https://arrhwtdhhuyeuqqkqgri.supabase.co",
       "supabaseAnonKey": "sb_publishable_wFC9wNWR0Ic5dRgiSnEfIw_vTtNW7MA"
     }
