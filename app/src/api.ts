@@ -27,10 +27,16 @@ export type FieldSpec = {
   max?: number;
 };
 
+/** How a category records use, decided by the server's registry rather than by
+ *  the screen. 'distance' logs a run and sums kilometres; 'sessions' logs an
+ *  outing and counts them; 'none' is consumed and accumulates nothing. */
+export type UsageKind = 'distance' | 'sessions' | 'none';
+
 export type ActivitySchema = {
   version: string;
   gear: Record<string, Record<string, FieldSpec>>;
   adventure: Record<string, FieldSpec>;
+  usage: Record<string, UsageKind>;
 };
 
 export type Activity = { key: string; name: string; built: boolean; sort: number };

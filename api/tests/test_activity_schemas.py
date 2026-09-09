@@ -19,8 +19,10 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from api.activities.registry import (ACTIVITIES, BUILT, SCHEMA_VERSION,
-                                     adventure_fields, gear_fields, schema_for)
+from api.activities.registry import (ACTIVITIES, BUILT, CATEGORY_USAGE,
+                                     SCHEMA_VERSION, USAGE_DISTANCE, USAGE_NONE,
+                                     USAGE_SESSIONS, adventure_fields, gear_fields,
+                                     schema_for, usage_for)
 from api.activities.validate import (validate_adventure_attributes,
                                      validate_gear_attributes)
 
@@ -173,3 +175,70 @@ def test_required_field_is_not_enforced_on_a_patch():
     out = validate_adventure_attributes("trail_running", {"elevation_gain_m": 500},
                                         partial=True)
     assert out == {"elevation_gain_m": 500}
+
+
+# ── how a category records use ──────────────────────────────────────────────
+#
+# "Log a run" appeared on a life jacket, which is what happens when a screen
+# assumes every category wears out by the kilometre. These pin the fix down:
+# usage is a property of the CATEGORY, declared once, and every activity's
+# schema carries the answer.
+
+def test_every_activity_schema_carries_a_usage_map():
+    for activity, schema in ACTIVITIES.items():
+        assert isinstance(schema.get("usage"), dict) and schema["usage"], activity
+
+
+def test_usage_values_are_known():
+    for activity, schema in ACTIVITIES.items():
+        for category, kind in schema["usage"].items():
+            assert kind in (USAGE_DISTANCE, USAGE_SESSIONS, USAGE_NONE), \
+                f"{activity}.{category} = {kind!r}"
+
+
+def test_universal_categories_are_declared_once_and_reach_every_activity():
+    """headlamp, safety and first_aid belong to no activity in particular. If
+    each activity had to declare them, three of the four would eventually
+    forget one and the app would fall back to a default nobody chose."""
+    for activity, schema in ACTIVITIES.items():
+        for category in ("headlamp", "safety", "first_aid", "electronics"):
+            assert category in schema["usage"], f"{activity} is missing {category}"
+
+
+def test_safety_gear_does_not_record_distance():
+    """The bug, as a test. A life jacket carried on a boat has no kilometres,
+    and asking for them produces a locker full of zeroes that mean nothing."""
+    for category in ("safety", "first_aid", "headlamp", "electronics", "eyewear"):
+        assert usage_for(category) == USAGE_SESSIONS, category
+
+
+def test_shoes_record_distance():
+    """The other half: mileage is the number this app is judged on, and the
+    gear-health engine in Phase 3 reads it."""
+    assert usage_for("shoes") == USAGE_DISTANCE
+
+
+def test_consumables_accumulate_nothing():
+    assert usage_for("nutrition") == USAGE_NONE
+
+
+def test_unknown_category_defaults_to_sessions():
+    """Sessions asks for nothing the user has to measure — a date is always
+    knowable, a distance is not. Defaulting the other way would put an empty
+    kilometre field in front of gear that has none."""
+    assert usage_for("trebuchet") == USAGE_SESSIONS
+    assert usage_for(None) == USAGE_SESSIONS
+
+
+def test_every_seeded_gear_category_has_a_usage_kind():
+    """The categories in 0002 and the usage map must not drift apart. A
+    category seeded into the database with no entry here renders under a
+    default that nobody chose for it."""
+    seeded = {
+        "headlamp", "navigation", "electronics", "first_aid", "safety",
+        "eyewear", "headwear", "gloves", "jacket", "accessories",
+        "shoes", "socks", "vest", "poles", "hydration", "nutrition",
+        "apparel_top", "apparel_bottom", "gaiters",
+    }
+    missing = seeded - set(CATEGORY_USAGE)
+    assert not missing, f"no usage kind for {sorted(missing)}"

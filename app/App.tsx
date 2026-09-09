@@ -79,7 +79,11 @@ function TabsScreen({ navigation }: any) {
           <Home
             onOpenGear={(id: string) => navigation.navigate('GearDetail', { id })}
             onAddGear={() => navigation.navigate('GearForm', {})}
-            onGearTab={() => navigation.navigate('Gear')}
+            // Addressed THROUGH the tab navigator, not as a sibling route.
+            // `navigation` here belongs to the root stack, which has no route
+            // called 'Gear' — that name only exists inside Tabs. Calling it
+            // directly threw a NAVIGATE error and left the button dead.
+            onGearTab={() => navigation.navigate('Tabs', { screen: 'Gear' })}
           />
         )}
       </Tabs.Screen>

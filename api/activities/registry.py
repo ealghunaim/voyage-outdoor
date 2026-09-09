@@ -233,12 +233,77 @@ FLY_FISHING = {
 }
 
 
+# ── how a category records use ──────────────────────────────────────────────
+#
+# "Log a run" on a life jacket is what happens when a screen assumes every
+# piece of gear wears out the way a shoe does. It does not: a headlamp is used
+# for hours, a first aid kit is carried and never opened, a gel is eaten. Only
+# some categories have a distance at all, and asking for one everywhere
+# produces a locker full of zeroes that mean nothing.
+#
+# So it is a property of the category, declared here, and the app renders what
+# it is told. §28 — no activity-specific hardcoded logic in the UI.
+#
+#   distance  the thing wears out by kilometre; log a run, sum a total
+#   sessions  it wears out by outing; log a use, count them
+#   none      consumed rather than used; there is nothing to accumulate
+
+USAGE_DISTANCE, USAGE_SESSIONS, USAGE_NONE = "distance", "sessions", "none"
+
+#: Shared across activities, so the universal categories (headlamp, safety,
+#: first aid) are declared once rather than four times — the same reason
+#: gear_categories.activity_key is nullable.
+CATEGORY_USAGE = {
+    # wears out by kilometre
+    "shoes":          USAGE_DISTANCE,
+    "socks":          USAGE_DISTANCE,
+    "vest":           USAGE_DISTANCE,
+    "poles":          USAGE_DISTANCE,
+    "apparel_top":    USAGE_DISTANCE,
+    "apparel_bottom": USAGE_DISTANCE,
+    "gaiters":        USAGE_DISTANCE,
+    # wears out by outing — a headlamp's burn hours are not the run's distance,
+    # and a shell carried in a vest all day and never worn has covered the
+    # distance without being used at all
+    "jacket":       USAGE_SESSIONS,
+    "headlamp":     USAGE_SESSIONS,
+    "hydration":    USAGE_SESSIONS,
+    "navigation":   USAGE_SESSIONS,
+    "electronics":  USAGE_SESSIONS,
+    "eyewear":      USAGE_SESSIONS,
+    "headwear":     USAGE_SESSIONS,
+    "gloves":       USAGE_SESSIONS,
+    "accessories":  USAGE_SESSIONS,
+    # carried, rarely used, and a count of times opened is worth having
+    "first_aid":    USAGE_SESSIONS,
+    "safety":       USAGE_SESSIONS,
+    # consumed
+    "nutrition":    USAGE_NONE,
+}
+
+#: An unknown category records sessions. Sessions is the safe default because
+#: it asks for nothing the user has to measure — a date is always knowable,
+#: a distance is not.
+DEFAULT_USAGE = USAGE_SESSIONS
+
+
+def usage_for(category_key: str | None) -> str:
+    return CATEGORY_USAGE.get(category_key or "", DEFAULT_USAGE)
+
+
 ACTIVITIES: dict[str, dict] = {
     "trail_running": TRAIL_RUNNING,
     "hiking": HIKING,
     "fishing": FISHING,
     "fly_fishing": FLY_FISHING,
 }
+
+# Merged in at import so there is ONE place a category's usage is declared and
+# every consumer — the schema endpoint, the seed script's copy in the database,
+# the app — sees the same answer. A per-activity `usage` key overrides, which
+# nothing needs yet and fishing may when a rod's wear is counted in casts.
+for _schema in ACTIVITIES.values():
+    _schema["usage"] = {**CATEGORY_USAGE, **_schema.get("usage", {})}
 
 #: The only one with a UI. Everything else is schema-only until Phase 7.
 BUILT = ("trail_running",)

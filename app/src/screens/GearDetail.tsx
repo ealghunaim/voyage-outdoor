@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 
 import {
-  ActivitySchema, GearDetail as GearDetailT, deleteGear, getActivitySchema,
-  getGear, logUsage, updateGear,
+  ActivitySchema, GearDetail as GearDetailT, UsageKind, deleteGear,
+  getActivitySchema, getGear, logUsage, updateGear,
 } from '../api';
 import { dropCache, useCached } from '../cache';
 import { describeAttributes } from '../components/AttributeFields';
@@ -36,6 +36,14 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
     const fields = g.category_key ? schema.data.gear[g.category_key] ?? {} : {};
     return describeAttributes(fields, g.attributes ?? {});
   }, [g, schema.data]);
+
+  // What this category actually accumulates. Defaults to 'sessions' rather
+  // than 'distance' — until the schema has loaded, or for a category the
+  // server has not heard of, the safe assumption is the one that asks the
+  // user for nothing they would have to measure.
+  const usage: UsageKind = (g?.category_key && schema.data?.usage?.[g.category_key])
+    || 'sessions';
+  const tracksDistance = usage === 'distance';
 
   const invalidate = async () => {
     await Promise.all([dropCache('gear.active'), dropCache('gear.all')]);
@@ -130,9 +138,17 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
 
       <Card style={{ gap: S[1] }}>
         <Label>Use</Label>
-        <Row label="Total distance" value={distance(g.totals.distance_m)} />
-        <Row label="Sessions" value={String(g.totals.sessions)} />
-        <Row label="Time" value={duration(g.totals.duration_s)} />
+        {/* Distance only where the category accumulates one. A life jacket
+            reading "0 km" is not a fact about the life jacket — it is the
+            screen asking a question that does not apply to it. */}
+        {tracksDistance && (
+          <Row label="Total distance" value={distance(g.totals.distance_m)} />
+        )}
+        <Row label={tracksDistance ? 'Sessions' : 'Times used'}
+             value={String(g.totals.sessions)} />
+        {g.totals.duration_s > 0 && (
+          <Row label="Time" value={duration(g.totals.duration_s)} />
+        )}
         <Row label="Last used" value={since(g.totals.last_used_on)} />
         <Row
           label="Condition"
@@ -163,25 +179,35 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
         )}
       </Card>
 
-      {logging ? (
+      {/* 'none' is a consumable — a gel accumulates nothing, so there is
+          nothing to offer. Anything else logs, and only distance-tracked
+          categories are asked for a distance. */}
+      {usage !== 'none' && (logging ? (
         <Card style={{ gap: S[4] }}>
-          <Label>Log a run</Label>
+          <Label>{tracksDistance ? 'Log a run' : 'Log a use'}</Label>
           <Field label="Date" value={logDate} onChange={setLogDate} placeholder="YYYY-MM-DD" />
-          <Field label="Distance" unit="km" value={logDistance}
-                 onChange={t => setLogDistance(t.replace(/[^0-9.]/g, ''))}
-                 keyboardType="decimal-pad" placeholder="21.1" />
+          {tracksDistance && (
+            <Field label="Distance" unit="km" value={logDistance}
+                   onChange={t => setLogDistance(t.replace(/[^0-9.]/g, ''))}
+                   keyboardType="decimal-pad" placeholder="21.1" />
+          )}
           <Btn label="Save" onPress={addUsage} busy={busy} />
           <Btn kind="quiet" label="Cancel" onPress={() => setLogging(false)} />
         </Card>
       ) : (
-        <Btn kind="ghost" label="Log a run" onPress={() => setLogging(true)} />
-      )}
+        <Btn kind="ghost" label={tracksDistance ? 'Log a run' : 'Log a use'}
+             onPress={() => setLogging(true)} />
+      ))}
 
       {g.usage.length > 0 && (
         <Card style={{ gap: S[2] }}>
           <Label>History</Label>
           {g.usage.slice(0, 10).map(u => (
-            <Row key={u.id} label={day(u.occurred_on)} value={distance(u.distance_m)} />
+            <Row key={u.id} label={day(u.occurred_on)}
+                 // An em dash beside every date is noise. Where distance is not
+                 // recorded the date IS the entry, so the row carries nothing
+                 // on the right rather than a placeholder for a missing number.
+                 value={u.distance_m !== null ? distance(u.distance_m) : ''} />
           ))}
           {g.usage.length > 10 && <Muted>{g.usage.length - 10} more</Muted>}
         </Card>
