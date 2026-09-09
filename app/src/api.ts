@@ -443,7 +443,14 @@ export const ask = (question: string, adventureId?: string): Promise<AskAnswer> 
 
 // ── race kit import (§24) ───────────────────────────────────────────────────
 
-export type KitItem = { text: string; condition: string | null };
+/** `text` is the checklist line; `detail` is the page's prose about it. They
+ *  are separate because a pack list of twenty-three paragraphs is not a pack
+ *  list — see api/racekit/extract.py for what the first version produced. */
+export type KitItem = {
+  text: string;
+  detail: string | null;
+  condition: string | null;
+};
 
 export type RaceKitDraft = {
   id: string;

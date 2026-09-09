@@ -1,6 +1,10 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import {
+  Montserrat_400Regular, Montserrat_600SemiBold, Montserrat_700Bold, useFonts,
+} from '@expo-google-fonts/montserrat';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -146,10 +150,27 @@ function Boot() {
   );
 }
 
+// Hold the native splash until the fonts are in. Without this the first frame
+// renders the whole app in the system face and then re-lays it out in
+// Montserrat — a visible reflow on every cold start, which is the one moment a
+// user is definitely looking at the screen.
+//
+// It returns a promise that is deliberately not awaited: if it rejects (the
+// splash was already gone) there is nothing to do about it, and an unhandled
+// rejection at module scope would be a red box over a working app.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function App() {
   const { mode, P } = useTheme();
   const [booting, setBooting] = useState(true);
   const [authed, setAuthed] = useState(false);
+
+  // Three weights, not five. The brand guide lists Light through Bold; the type
+  // scale in theme.ts only ever asks for regular, semibold and bold, and each
+  // unused weight is a font file shipped in the binary and parsed at launch.
+  const [fontsReady, fontError] = useFonts({
+    Montserrat_400Regular, Montserrat_600SemiBold, Montserrat_700Bold,
+  });
 
   useEffect(() => {
     // A 401 that survives one refresh means the session is gone. Handled here
@@ -162,7 +183,18 @@ export default function App() {
     })();
   }, []);
 
-  if (booting) {
+  // A FONT THAT FAILS TO LOAD IS NOT A REASON TO HOLD THE APP HOSTAGE. useFonts
+  // reports the error and keeps `fontsReady` false forever; blocking on it
+  // would mean a corrupt asset presents as an app that never opens. The type
+  // scale falls back to the system face, which is exactly what it did for the
+  // first four phases.
+  const typeSettled = fontsReady || !!fontError;
+
+  useEffect(() => {
+    if (typeSettled && !booting) SplashScreen.hideAsync().catch(() => {});
+  }, [typeSettled, booting]);
+
+  if (booting || !typeSettled) {
     return (
       <SafeAreaProvider>
         <Boot />

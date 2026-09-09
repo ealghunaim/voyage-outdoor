@@ -52,10 +52,34 @@ KEYWORDS = re.compile(
 class KitItem(BaseModel):
     """One line off the race's list.
 
+    THREE FIELDS, NOT ONE, and the split is the point. Run against Oman by UTMB
+    the first version returned this as a single item name:
+
+        "Smartphone - LiveTrail application must be installed and activated
+         with international roaming for its use in Oman. Must be reachable at
+         any time before, during and after the race. Keep the phone on, airplane
+         mode is forbidden and could give rise to penalties. An external battery
+         is highly recommended."
+
+    Faithful to the page and useless as a pack line — the pack list became
+    twenty-three paragraphs, and the attribute validator then cut each one at
+    200 characters. What a runner ticks off in a hallway is "Smartphone"; the
+    rest is why, and it belongs beside the item rather than inside its name.
+
     No category field, deliberately — see the module docstring.
     """
-    text: str = Field(description="The item exactly as the page words it, "
-                                  "including any specification or minimum.")
+    text: str = Field(
+        description="The item itself, as a checklist line — the noun plus any "
+                    "specification or minimum that identifies it. Keep numbers "
+                    "and units: 'Waterproof jacket, min 10,000mm', 'Warm second "
+                    "layer, min 180g', 'Head torch with spare batteries'. Under "
+                    "120 characters. Do NOT put the page's explanation, "
+                    "justification, or penalty warnings here.")
+    detail: str | None = Field(
+        description="The page's own explanation for this item, if it gives one "
+                    "— what it is for, how it must be used, what happens "
+                    "without it. Verbatim where practical. Null if the page "
+                    "just lists the item.")
     condition: str | None = Field(
         description="A SHORT label, at most 8 words, for when this item is "
                     "required — 'cold weather kit', 'over 50km only', 'camp "

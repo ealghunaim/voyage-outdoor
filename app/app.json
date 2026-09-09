@@ -8,20 +8,47 @@
     "newArchEnabled": true,
     "_DARK_MODE": "userInterfaceStyle is 'automatic' from the first commit, not from Phase 6. VoyageOS is locked to 'light' and has no dark tokens, so every screen written before a dark pass has to be revisited to add one — the retrofit cost the Phase 0 audit flagged. Here the theme ships as a light/dark PAIR and the OS decides.",
     "userInterfaceStyle": "automatic",
+    "_ICONS": "Generated from the brand PDF by scripts/make_icons.py — run it again if the logo changes. The top-level icon is the fallback and carries NO alpha channel: iOS flattens transparency to black, which is how a mark ends up sitting on a black wedge. ios.icon takes the light/dark pair the brand guide already draws ('APP ICON (LIGHT)' on white, 'APP ICON (DARK)' on navy), so those are the designer's intent rather than a guess made here. The Android foreground is sized to the CIRCLE inside the 66% safe zone, not the square — the V's top corners fall outside a square-sized mark on a Pixel.",
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ealghunaim.voyageoutdoor",
+      "icon": {
+        "light": "./assets/icon-light.png",
+        "dark": "./assets/icon.png",
+        "tinted": "./assets/icon-tinted.png"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.ealghunaim.voyageoutdoor"
+      "package": "com.ealghunaim.voyageoutdoor",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B1E2D"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-secure-store",
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#0B1E2D"
+          }
+        }
+      ]
     ],
     "_EXTRA": "apiUrl/supabaseUrl/supabaseAnonKey are the three values that flip between dev and production. appKey and scheme must survive any flip. supabaseAnonKey holds the PUBLISHABLE key (sb_publishable_…) — designed to ship in a binary, and it cannot read a table: PostgREST now refuses it outright, so the only thing it opens is /auth/v1. The SECRET key (sb_secret_…) never appears in this file, in the app, or in any build.",
     "extra": {

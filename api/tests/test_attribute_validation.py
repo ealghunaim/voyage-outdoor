@@ -135,3 +135,35 @@ def test_non_object_payload_is_refused():
 def test_strings_are_clipped_rather_than_refused():
     out = gear({"outsole": "x" * 500})
     assert len(out["outsole"]) == 200
+
+
+def test_a_long_kit_line_is_rejected_not_silently_cut():
+    """This was `item.strip()[:200]`, and it is the one place the file's own
+    rule about silent coercion had an exception — in the field §24 makes
+    authoritative and the pack engine marks critical.
+
+    A real line from Oman by UTMB was stored as "...Keep the pho" and rendered
+    on the pack as a sentence ending mid-word, with nothing recording that
+    anything had been dropped."""
+    from fastapi import HTTPException
+
+    long_line = "Smartphone - LiveTrail application must be installed " + "x" * 400
+    with pytest.raises(HTTPException) as e:
+        validate_adventure_attributes(
+            "trail_running", {"mandatory_kit": [long_line]}, partial=True)
+    assert e.value.status_code == 422
+    assert "mandatory_kit" in e.value.detail
+    # The message has to say what to do, not just that it failed.
+    assert "Shorten" in e.value.detail
+
+
+def test_a_real_length_kit_line_still_fits():
+    """The longest genuine line seen in the wild is ~230 characters. A limit
+    that rejects real race wording would be its own kind of data loss."""
+    real = ("Additional Warm Second Layer - A warm second layer top with long "
+            "sleeves (excluding cotton) weighing at least 180g (men's size M) "
+            "OR the combination of long-sleeved warm undergarment (excluding "
+            "cotton) and a warm second layer")
+    out = validate_adventure_attributes(
+        "trail_running", {"mandatory_kit": [real]}, partial=True)
+    assert out["mandatory_kit"] == [real]

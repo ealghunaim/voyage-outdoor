@@ -18,18 +18,44 @@
 import { useColorScheme } from 'react-native';
 
 // ── the ramp ────────────────────────────────────────────────────────────────
-// Inherited from VoyageOS (§19: same visual DNA) and pulled colder and deeper.
-// Trail, not terminal: ink is nearly black so a night-time screen at minimum
-// brightness is still legible, and the signal blue stays out of the amber and
-// red that mean something here.
+// THE BRAND PALETTE, from the Voyage Outdoor design guide, section 5. The first
+// five values are the guide's own hex codes and names; nothing here reinterprets
+// them. What the guide does not answer is WHERE each one may be used, and that
+// is not a stylistic question — it is a contrast question with a measurable
+// answer, so the note below records the measurements rather than the taste.
+//
+//   Voyage Blue   #00A6FF   as text on the light page       2.43:1   FAILS AA
+//                           as a fill under a white label   2.66:1   FAILS AA
+//                           as text on Mountain Navy        6.38:1   passes
+//   Deep Ocean    #0077CC   as a fill under a white label   4.66:1   passes
+//                           as text on a white card        4.66:1   passes
+//   Sky Ice       #AEE6FF   as text on Mountain Navy       12.57:1   passes
+//   Slate         #6B7C8F   as muted text on white          4.28:1   passes
+//
+// So the hero colour cannot carry interaction in light mode. Voyage Blue is the
+// DARK-mode brand, where it is genuinely excellent, and Deep Ocean carries light
+// mode. Both are the guide's own colours — this splits them by surface rather
+// than substituting anything, and it is the same principle the file already
+// applied by hand: an accent has to get lighter as the surface gets darker.
+//
+// Voyage Blue still appears in light mode wherever contrast is not the job —
+// the logo, brandWash fills, a progress bar — because a 3:1 non-text component
+// is a different bar from 4.5:1 body copy.
 
 const RAMP = {
-  ink:    '#08101C',
-  slate:  '#0F1B2D',
-  steel:  '#1D2E47',
-  blue:   '#1268E3',
-  sky:    '#4DA9FF',
-  cyan:   '#6EE7FF',
+  voyageBlue:   '#00A6FF',   // Trust · Outdoor      — hero, and dark-mode brand
+  deepOcean:    '#0077CC',   // Depth · Stability    — light-mode interaction
+  mountainNavy: '#0B1E2D',   // Strength · Adventure — dark page, icon plate
+  skyIce:       '#AEE6FF',   // Clarity · Freedom    — accent on dark
+  slate:        '#6B7C8F',   // Balance · Modern     — muted type
+
+  // Not in the guide, and needed: a guide gives brand colours, not a whole UI.
+  // These are the surfaces and hairlines between Mountain Navy and the page,
+  // mixed toward navy so the dark mode reads as one family rather than as the
+  // brand sitting on somebody else's grey.
+  navyCard:     '#132A3C',
+  navySunken:   '#081722',
+  navyRaised:   '#1D3950',
 };
 
 export type Mode = 'light' | 'dark';
@@ -51,8 +77,13 @@ export type Palette = {
 };
 
 const LIGHT: Palette = {
-  brand: RAMP.blue,
-  brandWash: 'rgba(18,104,227,0.08)',
+  // Deep Ocean, not Voyage Blue — see the measurements on the ramp. A white
+  // label on Voyage Blue is 2.66:1, which is a button nobody can read outdoors,
+  // which is where this app is used.
+  brand: RAMP.deepOcean,
+  // The WASH is Voyage Blue. It sits behind content rather than under type, so
+  // the hero colour belongs here: this is where the brand shows in light mode.
+  brandWash: 'rgba(0,166,255,0.10)',
   onBrand: '#FFFFFF',
 
   pageBg: '#F1F5FA',
@@ -60,9 +91,9 @@ const LIGHT: Palette = {
   sunken: '#E6EDF6',
   raised: '#FFFFFF',
 
-  textPri: RAMP.ink,
-  textSec: '#4A5A72',
-  textMuted: '#77879F',
+  textPri: RAMP.mountainNavy,
+  textSec: '#43566B',
+  textMuted: RAMP.slate,
   onDark: '#FFFFFF',
 
   hairline: '#DDE5F0',
@@ -80,25 +111,31 @@ const LIGHT: Palette = {
 };
 
 const DARK: Palette = {
-  // Lifted, not the same blue. #1268E3 on a near-black card is a dim smudge;
-  // an accent has to get LIGHTER as the surface gets darker to hold the same
-  // apparent contrast.
-  brand: RAMP.sky,
-  brandWash: 'rgba(77,169,255,0.12)',
-  onBrand: RAMP.ink,
+  // Voyage Blue lands here, where it is genuinely excellent: 6.38:1 on Mountain
+  // Navy as text, and 6.38:1 the other way for a navy label on a blue fill. The
+  // same principle this file already applied by hand — an accent has to get
+  // lighter as the surface gets darker — and the brand's hero colour happens to
+  // be the lighter one.
+  brand: RAMP.voyageBlue,
+  brandWash: 'rgba(0,166,255,0.14)',
+  onBrand: RAMP.mountainNavy,
 
-  pageBg: RAMP.ink,
-  card: RAMP.slate,
-  sunken: '#0B1524',
-  raised: RAMP.steel,
+  pageBg: RAMP.mountainNavy,
+  card: RAMP.navyCard,
+  sunken: RAMP.navySunken,
+  raised: RAMP.navyRaised,
 
-  textPri: '#E9F0F9',
-  textSec: '#9FB0C7',
-  textMuted: '#6C7E97',
+  // Sky Ice as primary type rather than a neutral white. It is 12.57:1 on
+  // Mountain Navy — comfortably past AA — and it is the colour the guide gives
+  // for clarity, so the dark mode reads as this brand at night rather than as a
+  // generic dark theme.
+  textPri: '#E7F4FD',
+  textSec: '#A3BACE',
+  textMuted: '#7B92A6',
   onDark: '#FFFFFF',
 
-  hairline: '#1E2E45',
-  hairlineStrong: '#2C4160',
+  hairline: '#1E3547',
+  hairlineStrong: '#2E4A61',
 
   success: '#3DD39B',
   danger: '#FF6B72',
@@ -128,32 +165,57 @@ export const RA = { sm: 10, md: 14, lg: 18, xl: 24, pill: 999 } as const;
  *  Pressable in the app either meets this or carries hitSlop to reach it. */
 export const TAP = 48;
 
-/** THE TYPEFACE.
+/** THE TYPEFACE — Montserrat, and the Satoshi question is closed.
  *
- *  §19 says inherit Satoshi from VoyageOS. Satoshi is a licensed face and its
- *  .otf files live in the VoyageOS repo; whether that licence covers a second
- *  application is a question for whoever bought it, not something to assume by
- *  copying three binaries across.
+ *  §19 said inherit Satoshi from VoyageOS, and Phase 1 left this as an
+ *  indirection rather than copying three .otf files whose licence nobody had
+ *  checked. The brand guide answers it: section 6 specifies MONTSERRAT, in
+ *  Light / Regular / Medium / SemiBold / Bold. Montserrat is under the SIL Open
+ *  Font License, so there is no licence to buy, no binary to smuggle across
+ *  from another repo, and the question that was open for four phases is not a
+ *  question any more.
  *
- *  So this indirection: the app runs on the system face today, and dropping the
- *  files into app/assets/fonts/ plus registering them in App.tsx switches the
- *  whole type scale over with no other edit. `undefined` means "system default"
- *  to React Native, which is why the values below are not empty strings.
+ *  Loaded from @expo-google-fonts/montserrat in App.tsx. The indirection stays
+ *  because it cost nothing and it is what made this a one-file change.
+ *
+ *  These names must match the keys passed to useFonts() exactly — a typo here
+ *  is not an error, it is a silent fall back to the system face, which looks
+ *  almost right and is the hardest kind of wrong to notice.
  */
 export const F = {
-  reg: undefined as string | undefined,
-  med: undefined as string | undefined,
-  bold: undefined as string | undefined,
+  reg: 'Montserrat_400Regular' as string | undefined,
+  med: 'Montserrat_600SemiBold' as string | undefined,
+  bold: 'Montserrat_700Bold' as string | undefined,
 };
 
+/** NO `fontWeight` ANYWHERE BELOW, and that is load-bearing rather than tidy.
+ *
+ *  The weight is already in the family name — Montserrat_700Bold IS the bold
+ *  face. Naming a specific face AND asking for a weight makes iOS synthesise
+ *  emboldening on top of a font that is already bold, and it does so AFTER
+ *  measuring the string. The rendered glyphs come out wider than the box that
+ *  was laid out for them, so the last character is clipped down the middle.
+ *
+ *  This shipped for exactly one run on the simulator and it looked like this:
+ *  "Open locker" rendered as "Open locke", "Total weight" as "Total weigh",
+ *  "Items" with the s sliced in half — on a button with an inch of clear space
+ *  either side, which is what ruled out a layout cause. It was invisible for
+ *  four phases only because the app was running on the system face, where
+ *  fontWeight is the correct and only way to ask for bold.
+ *
+ *  The cost: if the font files ever fail to load, every size renders at the
+ *  system regular weight and the hierarchy flattens. That is a legible
+ *  degradation of a failure that needs a corrupt asset, weighed against
+ *  clipping that every user sees on every screen.
+ */
 export const T = {
-  display: { fontFamily: F.bold, fontSize: 32, lineHeight: 36, letterSpacing: -0.8, fontWeight: '700' },
-  h1:      { fontFamily: F.bold, fontSize: 24, lineHeight: 29, letterSpacing: -0.5, fontWeight: '700' },
-  h2:      { fontFamily: F.bold, fontSize: 19, lineHeight: 24, letterSpacing: -0.3, fontWeight: '700' },
-  title:   { fontFamily: F.med,  fontSize: 16, lineHeight: 21, letterSpacing: -0.1, fontWeight: '600' },
-  body:    { fontFamily: F.reg,  fontSize: 15, lineHeight: 21, fontWeight: '400' },
-  caption: { fontFamily: F.reg,  fontSize: 13, lineHeight: 18, fontWeight: '400' },
-  label:   { fontFamily: F.bold, fontSize: 11, lineHeight: 14, letterSpacing: 0.8, fontWeight: '700' },
+  display: { fontFamily: F.bold, fontSize: 32, lineHeight: 40, letterSpacing: -0.6 },
+  h1:      { fontFamily: F.bold, fontSize: 24, lineHeight: 31, letterSpacing: -0.4 },
+  h2:      { fontFamily: F.bold, fontSize: 19, lineHeight: 25, letterSpacing: -0.2 },
+  title:   { fontFamily: F.med,  fontSize: 16, lineHeight: 22 },
+  body:    { fontFamily: F.reg,  fontSize: 15, lineHeight: 22 },
+  caption: { fontFamily: F.reg,  fontSize: 13, lineHeight: 19 },
+  label:   { fontFamily: F.bold, fontSize: 11, lineHeight: 15, letterSpacing: 0.8 },
   /** Specs, mileage, elevation — anything that lines up in a column. */
   mono:    { fontFamily: 'Menlo', fontSize: 13, lineHeight: 18 },
 } as const;
@@ -172,11 +234,11 @@ export function elevation(mode: Mode) {
     };
   }
   return {
-    low:  { shadowColor: RAMP.ink, shadowOpacity: 0.04, shadowRadius: 8,
+    low:  { shadowColor: RAMP.mountainNavy, shadowOpacity: 0.04, shadowRadius: 8,
             shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-    mid:  { shadowColor: RAMP.ink, shadowOpacity: 0.07, shadowRadius: 18,
+    mid:  { shadowColor: RAMP.mountainNavy, shadowOpacity: 0.07, shadowRadius: 18,
             shadowOffset: { width: 0, height: 8 }, elevation: 3 },
-    high: { shadowColor: RAMP.ink, shadowOpacity: 0.12, shadowRadius: 30,
+    high: { shadowColor: RAMP.mountainNavy, shadowOpacity: 0.12, shadowRadius: 30,
             shadowOffset: { width: 0, height: 16 }, elevation: 8 },
   };
 }
@@ -209,7 +271,7 @@ export function onColor(hex: string): string {
     const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? RAMP.ink : '#FFFFFF';
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? RAMP.mountainNavy : '#FFFFFF';
 }
 
 export function tint(hex: string, alpha = 0.14): string {

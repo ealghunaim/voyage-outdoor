@@ -224,11 +224,20 @@ export default function RaceKitImport({ adventureId, adventureTitle, onDone, onC
                     }]}>
                       {line}
                     </Text>
-                    {/* The page's own qualifier, kept attached to its item. "Only
-                        for the 100km" is the difference between a kit check and
-                        two kilos of kit you did not need. */}
+                    {/* The page's own qualifier, kept attached to its item.
+                        "Only for the 100km" is the difference between a kit
+                        check and two kilos of kit you did not need. */}
                     {!!extracted.items?.[i]?.condition && (
                       <Muted>{extracted.items[i].condition}</Muted>
+                    )}
+                    {/* And the page's reasoning, here rather than in the item's
+                        name. This is the screen where "the LiveTrail app must
+                        be installed, airplane mode is forbidden" is worth
+                        reading; the pack list is not. */}
+                    {!!extracted.items?.[i]?.detail && (
+                      <Text style={[T.caption, { color: P.textSec }]}>
+                        {extracted.items[i].detail}
+                      </Text>
                     )}
                   </View>
                 </Pressable>

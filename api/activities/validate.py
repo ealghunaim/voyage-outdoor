@@ -36,6 +36,14 @@ from api.activities.registry import adventure_fields, gear_fields
 _TRUE = {"true", "1", "yes", "on"}
 _FALSE = {"false", "0", "no", "off"}
 
+#: Per entry in a string_list. Sized for the longest real mandatory-kit line
+#: seen in the wild — "Additional Warm Second Layer - A warm second layer top
+#: with long sleeves (excluding cotton) weighing at least 180g (men's size M) OR
+#: the combination of long-sleeved warm undergarment (excluding cotton)…" from
+#: Oman by UTMB, at 230 characters. Generous rather than tight, because the
+#: consequence of the limit being wrong is a requirement nobody can read.
+STRING_LIST_MAX = 400
+
 
 def _bad(field: str, why: str) -> HTTPException:
     return HTTPException(422, f"{field}: {why}")
@@ -104,7 +112,27 @@ def _coerce(field: str, spec: dict, value):
         for item in value[:100]:
             if not isinstance(item, str):
                 raise _bad(field, "expected a list of text")
-            s = item.strip()[:200]
+            s = item.strip()
+            # REJECTED, NOT TRUNCATED — the one place this file's own rule about
+            # silent coercion had an exception, and mandatory kit is the worst
+            # possible field to have it in.
+            #
+            # This was `item.strip()[:200]`. A kit line imported from Oman by
+            # UTMB — "Smartphone - LiveTrail application must be installed and
+            # activated with international roaming... Must be reachable at any
+            # time before, during and after the race. Keep the pho" — was cut
+            # there, stored cut, and shown on the pack as a sentence ending
+            # mid-word. Nothing recorded that anything had been dropped.
+            #
+            # §24 makes this data authoritative and the engine marks every line
+            # of it critical. Quietly removing the end of a requirement is how
+            # someone arrives at a kit check having packed the first 200
+            # characters of it.
+            if len(s) > STRING_LIST_MAX:
+                raise _bad(field,
+                           f"one entry is {len(s)} characters and the limit is "
+                           f"{STRING_LIST_MAX}. Shorten it rather than letting "
+                           f"it be cut: “{s[:60]}…”")
             if s:
                 out.append(s)
         return out

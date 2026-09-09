@@ -116,6 +116,13 @@ jacket with taped seams, minimum 10,000mm hydrostatic head" is one item, not
 Do not merge two lines into one, do not split one line into two, and do not add
 an item the page does not list, however standard it is for this kind of race.
 
+Separate the item from the prose about it. `text` is what a runner ticks off in
+a hallway at five in the morning — the thing itself, carrying any number that
+identifies which version of it counts. The page's reasoning, usage rules and
+penalty warnings go in `detail`. "Smartphone" is the item; "the LiveTrail app
+must be installed, airplane mode is forbidden and could give rise to penalties"
+is the detail. Splitting them is not summarising: nothing is dropped, it moves.
+
 If the page has no mandatory equipment list — if it is a results page, a
 registration form, or an article about the race — return an empty `items` list
 and say so in `note`. An empty answer is correct and useful. A plausible
