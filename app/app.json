@@ -23,12 +23,12 @@
       "expo-font",
       "expo-sqlite"
     ],
-    "_EXTRA": "apiUrl/supabaseUrl/supabaseAnonKey are the three values that flip between dev and production. appKey and scheme must survive any flip. supabaseAnonKey is the PUBLISHABLE key — designed to ship in a binary; the service key never appears here.",
+    "_EXTRA": "apiUrl/supabaseUrl/supabaseAnonKey are the three values that flip between dev and production. appKey and scheme must survive any flip. supabaseAnonKey holds the PUBLISHABLE key (sb_publishable_…) — designed to ship in a binary, and it cannot read a table: PostgREST now refuses it outright, so the only thing it opens is /auth/v1. The SECRET key (sb_secret_…) never appears in this file, in the app, or in any build.",
     "extra": {
       "apiUrl": "http://localhost:8000",
       "appKey": "",
       "supabaseUrl": "https://tebrcqqndpgcbedapwbn.supabase.co",
-      "supabaseAnonKey": ""
+      "supabaseAnonKey": "sb_publishable_kmPnAxp2pYgnWLjtgBzGyQ_d614oKkd"
     }
   }
 }
