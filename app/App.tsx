@@ -19,6 +19,7 @@ import GearForm from './src/screens/GearForm';
 import GearLocker from './src/screens/GearLocker';
 import Home from './src/screens/Home';
 import Login from './src/screens/Login';
+import Pack from './src/screens/Pack';
 import { Discover } from './src/screens/Placeholders';
 import Profile from './src/screens/Profile';
 import { S, T, TAP, useTheme } from './src/theme';
@@ -29,7 +30,7 @@ import { S, T, TAP, useTheme } from './src/theme';
  *   Root (stack)
  *     ├─ Login              — when signed out. Never in the stack beside Tabs.
  *     ├─ Tabs               — Home · Adventures · Gear · Discover · Profile
- *     ├─ AdventureDetail · AdventureForm
+ *     ├─ AdventureDetail · AdventureForm · Pack
  *     └─ GearDetail · GearForm
  *
  * Detail screens and forms push on the ROOT stack rather than inside their tab,
@@ -201,6 +202,8 @@ export default function App() {
                     <AdventureDetail
                       adventureId={route.params.id}
                       onEdit={() => navigation.navigate('AdventureForm', { id: route.params.id })}
+                      onPack={(title: string) =>
+                        navigation.navigate('Pack', { id: route.params.id, title })}
                       onGone={() => navigation.goBack()}
                     />
                   )}
@@ -217,6 +220,14 @@ export default function App() {
                       }}
                       onCancel={() => navigation.goBack()}
                     />
+                  )}
+                </Root.Screen>
+
+                <Root.Screen name="Pack"
+                             options={{ headerShown: true, title: '' }}>
+                  {({ navigation, route }: any) => (
+                    <Pack adventureId={route.params.id} title={route.params.title}
+                          onBack={() => navigation.goBack()} />
                   )}
                 </Root.Screen>
 

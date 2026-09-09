@@ -35,9 +35,10 @@ const VERB: Record<AdventureStatus, string> = {
   archived: 'Archive',
 };
 
-export default function AdventureDetail({ adventureId, onEdit, onGone }: {
+export default function AdventureDetail({ adventureId, onEdit, onPack, onGone }: {
   adventureId: string;
   onEdit: () => void;
+  onPack: (title: string) => void;
   onGone: () => void;
 }) {
   const { P } = useTheme();
@@ -168,16 +169,14 @@ export default function AdventureDetail({ adventureId, onEdit, onGone }: {
         {!!wxNote && days.length > 0 && <Muted>{wxNote}</Muted>}
       </Card>
 
-      {/* SMART PACK'S SLOT. Named honestly rather than stubbed with a button
-          that does nothing — §8's classification is deterministic code that
-          does not exist yet, and a disabled "Generate" would imply it does. */}
-      <Card style={{ gap: S[2] }}>
+      <Card style={{ gap: S[3] }}>
         <Label>Smart pack</Label>
         <Muted>
-          Phase 3. The REQUIRED / RECOMMENDED / MISSING classification is
-          rule-based code over this adventure, your locker and the forecast
-          above — no model decides it.
+          Rule-based code over this adventure, your locker and the forecast
+          above. Every line says which rule put it there, and no model decides
+          any of it.
         </Muted>
+        <Btn kind="ghost" label="Open the pack" onPress={() => onPack(adv.title)} />
       </Card>
 
       <View style={{ gap: S[3], paddingTop: S[2] }}>

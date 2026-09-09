@@ -154,6 +154,66 @@ export type WeatherResult = {
   days?: WeatherDay[];
 };
 
+export type Classification =
+  'required' | 'recommended' | 'optional' | 'not_needed' | 'missing';
+
+/** What the person has done about an item — deliberately separate from the
+ *  classification, which is what the engine decided. Conflating them loses the
+ *  ability to say "you were told to bring this and you have not." */
+export type PackState =
+  | 'not_selected' | 'selected' | 'packed' | 'verified'
+  | 'in_use' | 'returned' | 'missing' | 'damaged';
+
+export type PackItem = {
+  id: string;
+  gear_item_id: string | null;
+  name: string;
+  category_key: string | null;
+  qty: number;
+  classification: Classification;
+  state: PackState;
+  critical: boolean;
+  /** Which rule produced this line. Provenance, not decoration — it is what
+   *  makes "why is this here" answerable. */
+  rule_key: string | null;
+  reason: string | null;
+  source: 'rule' | 'mandatory' | 'manual';
+  sort: number;
+};
+
+export type PackWarningRow = {
+  id: string;
+  gear_item_id: string | null;
+  key: string;
+  severity: 'note' | 'caution' | 'critical';
+  message: string;
+  rule_key: string;
+  detail: Record<string, any>;
+};
+
+export type Readiness = {
+  required_total: number;
+  required_packed: number;
+  required_verified: number;
+  remaining: number;
+  critical_total: number;
+  critical_unverified: number;
+  missing_total: number;
+  /** Null when nothing is required yet. NOT 100 — an empty pack is not a
+   *  ready one, and rendering 100% over an unplanned adventure is exactly the
+   *  false reassurance the engines exist to avoid. */
+  percent: number | null;
+  ready: boolean;
+};
+
+export type Pack = {
+  list: { id: string; ruleset_version: string; generated_at: string;
+          generation_snapshot: Record<string, any> } | null;
+  items: PackItem[];
+  warnings: PackWarningRow[];
+  readiness: Readiness;
+};
+
 export type Me = {
   profile: { id: string; email: string | null; name: string | null;
              unit_system: 'metric' | 'imperial'; locale: string } | null;
@@ -291,6 +351,26 @@ export const searchPlaces = (q: string): Promise<Place[]> =>
 
 export const refreshWeather = (id: string, force = false): Promise<WeatherResult> =>
   req(`/v1/adventures/${id}/weather${qs({ force })}`, { method: 'POST' });
+
+// ── the pack ────────────────────────────────────────────────────────────────
+
+export const getPack = (adventureId: string): Promise<Pack> =>
+  req(`/v1/adventures/${adventureId}/pack`);
+
+export const generatePack = (adventureId: string): Promise<Pack> =>
+  req(`/v1/adventures/${adventureId}/pack`, { method: 'POST' });
+
+export const setPackItemState = (adventureId: string, itemId: string,
+                                 state: PackState): Promise<PackItem> =>
+  req(`/v1/adventures/${adventureId}/pack/items/${itemId}`,
+      { method: 'PATCH', body: JSON.stringify({ state }) });
+
+export const addPackItem = (adventureId: string, body: object): Promise<PackItem> =>
+  req(`/v1/adventures/${adventureId}/pack/items`,
+      { method: 'POST', body: JSON.stringify(body) });
+
+export const removePackItem = (adventureId: string, itemId: string): Promise<null> =>
+  req(`/v1/adventures/${adventureId}/pack/items/${itemId}`, { method: 'DELETE' });
 
 // ── gear usage ──────────────────────────────────────────────────────────────
 
