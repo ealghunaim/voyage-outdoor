@@ -6,7 +6,7 @@
 // FastAPI `detail` can be an object (which arrived as "[object Object]" in
 // front of users).
 
-import { getToken, refreshSession } from './auth';
+import { getToken, hasSession, refreshSession } from './auth';
 import * as CFG from './config';
 
 const API_URL = CFG.API_URL;
@@ -241,7 +241,19 @@ function readBody(status: number, text: string): any {
 
 export async function req(path: string, options: RequestInit = {},
                          _retried = false): Promise<any> {
-  const token = getToken();
+  // AN EXPIRED TOKEN IS NOT A MISSING SESSION.
+  //
+  // getToken() answers '' once the access token is within 30s of expiry, and
+  // the old code then sent no Authorization header at all — so the server
+  // answered 401 and the refresh branch below, which required `token` to be
+  // truthy, never ran. After an hour the app sat on cached data with "Sign in
+  // required" until it was relaunched, and the offline cache made that look
+  // like a network blip rather than a broken session. VoyageOS ships the same
+  // bug at the same line.
+  let token = getToken();
+  if (!token && hasSession()) {
+    if (await refreshSession()) token = getToken();
+  }
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -257,10 +269,14 @@ export async function req(path: string, options: RequestInit = {},
     throw new Error("Can't reach Voyage Outdoor — check your connection.");
   }
 
-  if (res.status === 401 && token) {
+  // No `&& token` guard. A 401 is a 401 whether or not this call managed to
+  // attach a token — that condition was the bug.
+  if (res.status === 401) {
     // One refresh, one retry. A second 401 after a fresh token means the
     // session is genuinely gone rather than merely stale.
-    if (!_retried && await refreshSession()) return req(path, options, true);
+    if (!_retried && hasSession() && await refreshSession()) {
+      return req(path, options, true);
+    }
     onAuthFail?.();
     throw new Error('Session expired — sign in again.');
   }

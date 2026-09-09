@@ -85,8 +85,30 @@ export async function loadSession(): Promise<'authed' | 'anon' | 'nokeys'> {
   return (await refreshSession()) ? 'authed' : 'anon';
 }
 
-export async function refreshSession(): Promise<boolean> {
-  if (!refreshTok) return false;
+/** Is there a session to refresh at all? Distinct from getToken(), which
+ *  answers "is the ACCESS token usable right now" — an expired access token
+ *  with a live refresh token is an ordinary state, not a signed-out one. */
+export function hasSession(): boolean {
+  return !!refreshTok;
+}
+
+/** The one in-flight refresh, shared by every caller.
+ *
+ *  SUPABASE ROTATES REFRESH TOKENS: each successful refresh invalidates the
+ *  one that was used. Four screens mounting at once and each calling this
+ *  would fire four refreshes with the same token — the first wins and the
+ *  other three get an invalidated token back, which signs the user out on app
+ *  open. Sharing the promise makes concurrent callers await one request. */
+let inFlight: Promise<boolean> | null = null;
+
+export function refreshSession(): Promise<boolean> {
+  if (!refreshTok) return Promise.resolve(false);
+  if (inFlight) return inFlight;
+  inFlight = doRefresh().finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function doRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`, {
       method: 'POST', headers: headers(),
