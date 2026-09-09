@@ -358,18 +358,24 @@ create policy "weather via adventure" on public.weather_snapshots for all
   with check (exists (select 1 from public.adventures a
                       where a.id = adventure_id and a.user_id = auth.uid()));
 
--- reference data: readable by any signed-in user, writable by nobody through
+-- Reference data: readable by any signed-in user, writable by nobody through
 -- the anon key. The API's service key seeds and maintains these.
+--
+-- `TO authenticated` rather than `using (auth.role() = 'authenticated')`. Both
+-- express the same intent, but the role clause is evaluated by Postgres before
+-- the policy body runs and does not depend on a helper function whose
+-- availability has moved between Supabase versions. The version that matters
+-- is the one this runs against in two years, not today's.
 create policy "read activities" on public.activities
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 create policy "read categories" on public.gear_categories
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 create policy "read products" on public.products
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 create policy "read variants" on public.product_variants
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 create policy "read locations" on public.locations
-  for select using (auth.role() = 'authenticated');
+  for select to authenticated using (true);
 
 -- ai_outputs is readable when you can reach its subject; the API writes it.
 -- No blanket policy: a subject_type/subject_id pair cannot be joined
