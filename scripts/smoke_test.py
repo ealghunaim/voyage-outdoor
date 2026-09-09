@@ -127,6 +127,7 @@ with httpx.Client(timeout=30) as c:
         "activity_key": "trail_running", "weight_g": 100,
         "attributes": {"lumens": 1100, "reactive": True, "rechargeable": True},
     }).json()
+    lampid = lamp["id"]
     check("universal category accepts its own fields",
           lamp["attributes"].get("lumens") == 1100, json.dumps(lamp["attributes"]))
 
@@ -358,6 +359,119 @@ with httpx.Client(timeout=30) as c:
     check("the run still happened after its adventure is gone",
           before == after and after > 0,
           f"{after / 1000:.1f} km before and after")
+
+
+    # ── PHASE 3: Smart Pack ────────────────────────────────────────────────
+    print("\nSMART PACK")
+    race = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Kit-check race",
+        "place_name": "Bidiyah", "lat": 22.45, "lng": 58.80,
+        "start_date": soon,
+        "attributes": {"distance_km": 160, "expected_hours": 30,
+                       "night_hours": 11, "elevation_gain_m": 9000,
+                       "terrain": ["mountain", "technical"],
+                       "mandatory_kit": ["Headlamp + spare batteries",
+                                         "Survival blanket", "Whistle",
+                                         "Mobile phone"]},
+    }).json()
+
+    empty = c.get(f"{API}/v1/adventures/{race['id']}/pack", headers=H).json()
+    check("a GET does not silently generate", empty["list"] is None,
+          "list is null before anything is built")
+
+    built = c.post(f"{API}/v1/adventures/{race['id']}/pack", headers=H)
+    check("pack generated", built.status_code == 201, f"HTTP {built.status_code}")
+    built = built.json()
+    counts = built["list"]["generation_snapshot"]["counts"]
+    check("every ruleset version is stamped on the list",
+          built["list"]["ruleset_version"] == "pack-v1"
+          and built["list"]["generation_snapshot"]["compat_ruleset"],
+          built["list"]["ruleset_version"])
+    check("classifications were produced", sum(counts.values()) == len(built["items"]),
+          str(counts))
+
+    ids = [i["gear_item_id"] for i in built["items"] if i["gear_item_id"]]
+    check("no gear item is claimed twice", len(ids) == len(set(ids)),
+          f"{len(ids)} used, {len(set(ids))} distinct")
+
+    mandatory = [i for i in built["items"] if i["source"] == "mandatory"]
+    check("every mandatory line survived", len(mandatory) == 4, str(len(mandatory)))
+    check("every mandatory line is critical", all(i["critical"] for i in mandatory))
+    # The headlamp was RETIRED earlier in this run, and a retired lamp must
+    # never answer a race requirement — "you already own one" is exactly wrong
+    # for something in a bin. So it is missing here, and un-retiring it must
+    # bring it back.
+    lamp_line = next(i for i in mandatory if i["category_key"] == "headlamp")
+    check("a RETIRED headlamp does not satisfy the race requirement",
+          lamp_line["classification"] == "missing"
+          and lamp_line["gear_item_id"] is None,
+          "retired gear is not offered")
+
+    c.patch(f"{API}/v1/gear/{lampid}", headers=H, json={"status": "active"})
+    revived = c.post(f"{API}/v1/adventures/{race['id']}/pack", headers=H).json()
+    lamp_line = next(i for i in revived["items"]
+                     if i["category_key"] == "headlamp" and i["source"] == "mandatory")
+    check("un-retiring it satisfies the requirement again",
+          lamp_line["classification"] == "required"
+          and lamp_line["gear_item_id"] == lampid,
+          lamp_line["name"])
+    built = revived
+    mandatory = [i for i in built["items"] if i["source"] == "mandatory"]
+
+    check("every line records the rule that produced it",
+          all(i["rule_key"] and i["reason"] for i in built["items"]))
+
+    text = " ".join([i["reason"] or "" for i in built["items"]]
+                    + [w["message"] for w in built["warnings"]]).lower()
+    check("nothing anywhere says buy", "buy" not in text and "purchase" not in text)
+
+    print("\nREADINESS")
+    r0 = built["readiness"]
+    check("an unpacked list is 0% and not ready",
+          r0["percent"] == 0 and r0["ready"] is False,
+          f"{r0['required_packed']}/{r0['required_total']}")
+
+    required = [i for i in built["items"] if i["classification"] == "required"]
+    for i in required:
+        c.patch(f"{API}/v1/adventures/{race['id']}/pack/items/{i['id']}",
+                headers=H, json={"state": "packed"})
+    r1 = c.get(f"{API}/v1/adventures/{race['id']}/readiness", headers=H).json()
+    check("packing everything required reaches 100%", r1["percent"] == 100,
+          f"{r1['required_packed']}/{r1['required_total']}")
+    check("but it is NOT ready — critical items are unverified",
+          r1["ready"] is False and r1["critical_unverified"] > 0,
+          f"{r1['critical_unverified']} critical unverified, "
+          f"{r1['missing_total']} missing")
+
+    print("\nSTATE CARRY-OVER")
+    regenerated = c.post(f"{API}/v1/adventures/{race['id']}/pack", headers=H).json()
+    still = [i for i in regenerated["items"] if i["state"] == "packed"]
+    check("regenerating does not un-pack a packed bag",
+          len(still) == len(required),
+          f"{len(still)} of {len(required)} still packed")
+    check("the snapshot records how many states carried",
+          regenerated["list"]["generation_snapshot"]["carried_states"] == len(required))
+
+    print("\nGEAR HEALTH WRITTEN BACK")
+    graded = c.get(f"{API}/v1/gear/{shoe['id']}", headers=H).json()
+    check("condition is now measured, not guessed",
+          graded["condition_pct"] is not None and graded["health_ruleset"] == "health-v1",
+          f"{graded['condition_pct']}% · {graded['health_detail'].get('state')}")
+    check("the health detail carries the band it judged against",
+          "band_low_km" in graded["health_detail"],
+          f"{graded['health_detail'].get('band_low_km')}–"
+          f"{graded['health_detail'].get('band_high_km')} km")
+    lamp = c.get(f"{API}/v1/gear/{lampid}", headers=H).json()
+    check("a category with no distance is unknown, not 0%",
+          lamp["condition_pct"] is None,
+          lamp["health_detail"].get("reason"))
+
+    print("\nPACK ISOLATION")
+    check("another account cannot read the pack",
+          c.get(f"{API}/v1/adventures/{race['id']}/pack", headers=H2).status_code == 404)
+    check("another account cannot move an item",
+          c.patch(f"{API}/v1/adventures/{race['id']}/pack/items/{required[0]['id']}",
+                  headers=H2, json={"state": "verified"}).status_code == 404)
 
     # ── teardown ───────────────────────────────────────────────────────────
     # Deleting the auth user cascades: profiles.id references auth.users on
