@@ -1,0 +1,24 @@
+# secrets — never committed. See .env.example for the shape.
+.env
+.env.local
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# node / expo
+node_modules/
+.expo/
+dist/
+*.tsbuildinfo
+
+# native build output — this project uses CNG (prebuild), so ios/ and android/
+# are generated. Committing them is a choice VoyageOS made and paid for in
+# merge conflicts; here they stay generated until there is a reason otherwise.
+app/ios/
+app/android/
+
+# macOS
+.DS_Store
