@@ -56,6 +56,19 @@ The test suite needs no database and no keys — the gates refuse before anythin
 touches Supabase, which is why they are fast and why a misconfigured gate cannot
 hide behind a connection error.
 
+That speed is also its blind spot, so there is a second kind of test that runs
+against the real thing:
+
+```bash
+.venv/bin/uvicorn api.main:app --port 8000 &
+.venv/bin/python -m scripts.smoke_test
+```
+
+30 checks over the whole Phase 1 loop — sign in, own, refuse, use, patch,
+filter, and confirm one account cannot see another's gear. It creates two
+throwaway accounts and deletes them at the end, which also proves the cascade
+from `auth.users` down through the locker works. Development projects only.
+
 Migrations are applied by pasting them into the Supabase SQL editor, in order,
 then running `.venv/bin/python -m scripts.seed_reference`.
 
