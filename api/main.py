@@ -1,4 +1,4 @@
-"""Voyage Outdoor API — Phase 2: adventures and their weather, over Phase 1.
+"""Voyage Outdoor API — Phase 3: Smart Pack over adventures and the locker.
 
 NO BACKGROUND SCHEDULER YET, and that is a decision rather than an omission.
 VoyageOS runs its notification governor and weather job with APScheduler inside
@@ -15,9 +15,10 @@ from api.adventures.router import router as adventures_router
 from api.core.config import settings
 from api.gear.router import router as gear_router
 from api.me.router import router as me_router
+from api.packing.router import router as pack_router
 from api.weather.router import router as weather_router
 
-app = FastAPI(title="Voyage Outdoor API", version="0.2.0")
+app = FastAPI(title="Voyage Outdoor API", version="0.3.0")
 
 #: Paths that do not carry x-voyage-key.
 OPEN_PATHS = ("/health", "/docs", "/openapi.json", "/redoc")
@@ -46,10 +47,10 @@ async def shared_secret_guard(request: Request, call_next):
 
 
 for r in (me_router, activities_router, gear_router, adventures_router,
-          weather_router):
+          weather_router, pack_router):
     app.include_router(r)
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": "0.2.0", "phase": 2}
+    return {"ok": True, "version": "0.3.0", "phase": 3}
