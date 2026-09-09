@@ -17,17 +17,25 @@ services:
     runtime: python
     plan: 0.5c-512mb
 
-    # ── REGION: CHECK THIS BEFORE THE FIRST DEPLOY ──────────────────────────
-    # It must match the Supabase project's region. Every request this service
-    # serves makes several round trips to Postgres, so an ocean between them is
-    # multiplied by the number of queries per request — a locker read that
-    # fetches an item, its usage and its maintenance pays the crossing three
-    # times.
+    # ── REGION: DECIDED, AND THE SUPABASE PROJECT MOVED TO MATCH ────────────
     #
-    # Render offers oregon · ohio · virginia · frankfurt · singapore. There is
-    # no Middle East region, so frankfurt is the closest to the Gulf — but
-    # closest to the USER is the wrong axis. Find the project's region in
-    # Supabase → Project Settings → General and match THAT.
+    # This must equal the Supabase project's region, because a single locker
+    # read fetches the item, its usage and its maintenance — three round trips,
+    # so any distance between API and database is paid three times per request.
+    #
+    # The first project was created in Tokyo, and Render has no Tokyo region
+    # (oregon · ohio · virginia · frankfurt · singapore). Measured from Kuwait,
+    # a REST call to the Tokyo origin ran ~400ms with a 21ms connect — the whole
+    # cost was the crossing. The two available topologies were:
+    #
+    #   Tokyo DB + Singapore API   ~150ms to the phone + 70ms x 3   ≈ 360ms
+    #   Frankfurt DB + Frankfurt   ~90ms to the phone + ~3ms x 3    ≈ 100ms
+    #
+    # So the project was recreated in eu-central-1 rather than the API being
+    # placed as near to Tokyo as Render allows. Done while the database held
+    # four activity rows and nineteen categories; the same decision after launch
+    # is a migration of real user data, and Supabase cannot move a project
+    # between regions in place.
     region: frankfurt
 
     rootDir: .
