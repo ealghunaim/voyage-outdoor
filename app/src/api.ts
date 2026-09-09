@@ -352,6 +352,18 @@ export const searchPlaces = (q: string): Promise<Place[]> =>
 export const refreshWeather = (id: string, force = false): Promise<WeatherResult> =>
   req(`/v1/adventures/${id}/weather${qs({ force })}`, { method: 'POST' });
 
+export type AttentionItem = {
+  id: string; name: string; category_key: string | null;
+  state: 'inspect' | 'past_expected';
+  condition_pct: number | null;
+  /** Written by the engine. A prompt to inspect, never a failure date. */
+  message: string;
+  detail: Record<string, any>;
+};
+
+export const gearNeedingAttention = (): Promise<{ items: AttentionItem[]; checked: number }> =>
+  req('/v1/gear/attention');
+
 // ── the pack ────────────────────────────────────────────────────────────────
 
 export const getPack = (adventureId: string): Promise<Pack> =>

@@ -1,7 +1,10 @@
 import React, { useMemo } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
-import { Adventure, GearItem, listAdventures, listGear } from '../api';
+import {
+  Adventure, AttentionItem, GearItem, gearNeedingAttention, listAdventures,
+  listGear,
+} from '../api';
 import { useCached } from '../cache';
 import {
   Banner, Btn, Card, Label, Loading, Muted, Pill, Row, Screen,
@@ -28,6 +31,8 @@ export default function Home({ onOpenGear, onAddGear, onGearTab,
   const { P } = useTheme();
   const gear = useCached<GearItem[]>('gear.active', () => listGear({ status: 'active' }));
   const adventures = useCached<Adventure[]>('adventures.live', () => listAdventures());
+  const attention = useCached<{ items: AttentionItem[]; checked: number }>(
+    'gear.attention', gearNeedingAttention);
 
   /** The soonest one that has not finished. Not simply the first row: the list
    *  arrives ordered by start date, and an adventure that started yesterday
@@ -107,15 +112,33 @@ export default function Home({ onOpenGear, onAddGear, onGearTab,
         </View>
       </Card>
 
-      {/* GEAR NEEDING ATTENTION — §17. The engine that decides "needing
-          attention" is Phase 3; showing a guess in the meantime would be the
-          exact thing §12 forbids, so the card states what it is waiting for. */}
+      {/* GEAR NEEDING ATTENTION — §17, and §12 on how it may be phrased.
+          Every line is the engine's own sentence: a band and a prompt to
+          inspect, never a prediction of when something will fail. */}
       <Card style={{ gap: S[2] }}>
         <Label>Needing attention</Label>
-        <Muted>
-          Gear health lands in Phase 3, as deterministic thresholds over the
-          usage you log. Nothing is guessed here before then.
-        </Muted>
+        {(attention.data?.items.length ?? 0) === 0 ? (
+          <Muted>
+            {attention.data?.checked
+              ? `Nothing flagged across ${attention.data.checked} items.`
+              : 'Nothing to check yet — log some runs and wear shows up here.'}
+          </Muted>
+        ) : (
+          <View style={{ gap: S[3] }}>
+            {attention.data!.items.map(i => (
+              <Pressable key={i.id} onPress={() => onOpenGear(i.id)}
+                         style={{ gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center',
+                               gap: S[2] }}>
+                  <Text style={[T.body, { color: P.textPri }]}>{i.name}</Text>
+                  <Pill label={i.state === 'past_expected' ? 'Past range' : 'Inspect'}
+                        tone={i.state === 'past_expected' ? P.critical : P.warningInk} />
+                </View>
+                <Muted>{i.message}</Muted>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </Card>
 
       {recent.length > 0 ? (

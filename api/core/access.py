@@ -16,6 +16,8 @@ changes and the call sites do not.
 """
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException
 
 #: What a write is trying to do. Unused while V1 is single-player; present so
@@ -28,7 +30,24 @@ NOT_FOUND = {"gear_items": "Gear not found",
              "adventures": "Adventure not found"}
 
 
+#: uuid, in the only shape Postgres accepts for a uuid column.
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                   r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
 def _owned(db, table: str, row_id: str, user_id: str) -> dict:
+    # A MALFORMED ID IS A 404, NOT A 500.
+    #
+    # Postgres refuses a non-uuid on a uuid column with "invalid input syntax
+    # for type uuid", supabase-py raises, and without this the error escapes as
+    # a 500 carrying the database's own wording. Wrong twice over: the caller
+    # asked for something that does not exist, which is a 404, and a 500 says
+    # the server broke when it did not.
+    #
+    # Checked in the client rather than caught from the database, because
+    # catching it would mean a round trip to learn something a regex knows.
+    if not _UUID.match(row_id or ""):
+        raise HTTPException(404, NOT_FOUND.get(table, "Not found"))
     rows = (db.table(table).select("*")
             .eq("id", row_id).eq("user_id", user_id).limit(1).execute().data)
     if not rows:
@@ -57,6 +76,8 @@ def owned_gear_child(db, table: str, row_id: str, user_id: str) -> dict:
     decide whether that meant "no such row" or "not yours". Two explicit reads
     give one 404 for both, which is the answer this file exists to give.
     """
+    if not _UUID.match(row_id or ""):
+        raise HTTPException(404, "Not found")
     rows = db.table(table).select("*").eq("id", row_id).limit(1).execute().data
     if not rows:
         raise HTTPException(404, "Not found")

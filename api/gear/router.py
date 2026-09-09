@@ -103,6 +103,51 @@ def _jsonable(payload: dict) -> dict:
 
 # ── the locker ──────────────────────────────────────────────────────────────
 
+@router.get("/attention")
+def gear_needing_attention(user_id: str = Depends(current_user_id)):
+    """Gear the health engine wants looked at (§17's "needing attention").
+
+    COMPUTED HERE RATHER THAN READ FROM condition_pct. That column is written
+    when a pack is generated, and someone who has not planned an adventure yet
+    would otherwise be told nothing needs attention — which is not the same as
+    nothing needing attention. The engine is pure and cheap; the only cost is
+    one usage query for the whole locker.
+
+    Returns the BAND and the state, not just a percentage. §12: a prompt to
+    inspect, never a prediction of failure.
+    """
+    from api.engines import gear_health
+
+    db = get_db()
+    locker = (db.table("gear_items").select("*")
+              .eq("user_id", user_id).eq("status", "active").execute().data)
+    if not locker:
+        return {"items": [], "checked": 0}
+
+    usage = (db.table("gear_usage").select("gear_item_id,distance_m,duration_s")
+             .in_("gear_item_id", [g["id"] for g in locker]).execute().data)
+    totals: dict[str, dict] = {}
+    for row in usage:
+        bucket = totals.setdefault(row["gear_item_id"],
+                                   {"distance_m": 0, "duration_s": 0, "sessions": 0})
+        bucket["distance_m"] += row.get("distance_m") or 0
+        bucket["duration_s"] += row.get("duration_s") or 0
+        bucket["sessions"] += 1
+
+    out = []
+    for gear in locker:
+        result = gear_health.evaluate(gear, totals.get(gear["id"], {}))
+        if result.needs_attention:
+            out.append({"id": gear["id"], "name": gear["name"],
+                        "category_key": gear["category_key"],
+                        "state": result.state, "condition_pct": result.condition_pct,
+                        "message": result.message, "detail": result.detail})
+    # Worst first — past_expected before inspect, then by how worn.
+    out.sort(key=lambda i: (0 if i["state"] == "past_expected" else 1,
+                            i["condition_pct"] if i["condition_pct"] is not None else 100))
+    return {"items": out, "checked": len(locker)}
+
+
 @router.get("")
 def list_gear(status: str | None = None,
               activity_key: str | None = None,

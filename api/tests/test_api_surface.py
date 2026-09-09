@@ -8,8 +8,10 @@ a misconfigured gate cannot hide behind a database error.
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from api.core.access import _owned, owned_gear_child
 from api.core.config import settings
 from api.main import app
 
@@ -121,3 +123,42 @@ def test_wrong_key_is_refused():
     settings.app_shared_secret = "live-key"
     r = client.get("/v1/gear", headers={"x-voyage-key": "guessed"})
     assert r.json()["detail"] == "unauthorized"
+
+
+# ── malformed ids ───────────────────────────────────────────────────────────
+#
+# Found by typing a nonsense id at a running server. Postgres refuses a
+# non-uuid on a uuid column, supabase-py raises, and the error escaped as a 500
+# carrying the database's own wording. A caller asking for something that
+# cannot exist is a 404, and a 500 claims the server broke when it did not.
+
+class _ExplodingDB:
+    """Any query at all is a failure here: a malformed id must be refused
+    before the database is touched, or the check is pointless."""
+
+    def table(self, *a, **k):
+        raise AssertionError("the database was queried for a malformed id")
+
+
+@pytest.mark.parametrize("bad", [
+    "not-a-real-id", "attention", "", "12345",
+    "../../etc/passwd", "00000000-0000-0000-0000-00000000000",   # one short
+])
+def test_a_malformed_id_is_404_without_touching_the_database(bad):
+    for table in ("gear_items", "adventures"):
+        with pytest.raises(HTTPException) as e:
+            _owned(_ExplodingDB(), table, bad, "user")
+        assert e.value.status_code == 404
+
+
+def test_child_lookups_refuse_a_malformed_id_too():
+    with pytest.raises(HTTPException) as e:
+        owned_gear_child(_ExplodingDB(), "gear_usage", "nope", "user")
+    assert e.value.status_code == 404
+
+
+def test_a_well_formed_id_does_reach_the_database():
+    """The guard must not be so eager that it refuses real ids."""
+    with pytest.raises(AssertionError, match="database was queried"):
+        _owned(_ExplodingDB(), "gear_items",
+               "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "user")
