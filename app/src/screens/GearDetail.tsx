@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 import {
-  ActivitySchema, GearDetail as GearDetailT, UsageKind, deleteGear,
-  getActivitySchema, getGear, logUsage, updateGear,
+  ActivitySchema, GearDetail as GearDetailT, Review, UsageKind, deleteGear,
+  getActivitySchema, getGear, getReview, logUsage, putReview, updateGear,
 } from '../api';
 import { dropCache, useCached } from '../cache';
 import { describeAttributes } from '../components/AttributeFields';
@@ -11,7 +11,7 @@ import {
   Banner, Btn, Card, Field, H, Label, Loading, Muted, Pill, Row, Screen,
 } from '../components/ui';
 import { day, distance, duration, since, titleCase, weight } from '../format';
-import { S, T, useTheme } from '../theme';
+import { S, T, TAP, useTheme } from '../theme';
 
 export default function GearDetail({ gearId, onEdit, onGone }: {
   gearId: string;
@@ -201,6 +201,8 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
              onPress={() => setLogging(true)} />
       ))}
 
+      <ReviewCard gearId={gearId} />
+
       {g.usage.length > 0 && (
         <Card style={{ gap: S[2] }}>
           <Label>History</Label>
@@ -233,5 +235,134 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
         <Btn kind="quiet" label="Delete" tone={P.danger} onPress={confirmDelete} />
       </View>
     </Screen>
+  );
+}
+
+/**
+ * Your review of this item (§14, §15).
+ *
+ * ON A LOCKER ITEM, NOT A CATALOG PRODUCT, and that follows from §0.4 rather
+ * than being a shortcut: V1 has no live product database, so reviews of the
+ * catalog would be a feature with almost nothing to point at. This item, you
+ * own — which means the review has evidence behind it already.
+ *
+ * AND THE EVIDENCE IS THE FEATURE. A star rating on its own says nothing about
+ * whether it was earned over one wet weekend or two seasons. The server
+ * snapshots the record at the moment you write — distance, sessions,
+ * adventures, the health band — and this card shows it, because that is what
+ * makes the rating mean something a year later. It is frozen deliberately: a
+ * live join would let a review written at 200 km silently start claiming 900.
+ */
+function ReviewCard({ gearId }: { gearId: string }) {
+  const { P } = useTheme();
+  const [review, setReview] = useState<Review | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    getReview(gearId)
+      .then(r => { if (!alive) return; setReview(r); if (r) { setRating(r.rating); setBody(r.body ?? ''); } })
+      .catch(() => { /* not reviewed, or offline. Neither is an error. */ })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [gearId]);
+
+  const save = async () => {
+    if (!rating) { setErr('Pick a rating first.'); return; }
+    setBusy(true); setErr(null);
+    try {
+      setReview(await putReview(gearId, rating, body.trim() || null));
+      setEditing(false);
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not save that.');
+    } finally { setBusy(false); }
+  };
+
+  if (loading) return null;
+
+  const c = review?.context;
+  const bits = c ? [
+    c.distance_m ? distance(c.distance_m) : null,
+    `${c.sessions} session${c.sessions === 1 ? '' : 's'}`,
+    c.adventures?.length ? `${c.adventures.length} adventure${c.adventures.length === 1 ? '' : 's'}` : null,
+    c.maintenance_events ? `${c.maintenance_events} service${c.maintenance_events === 1 ? '' : 's'}` : null,
+  ].filter(Boolean) as string[] : [];
+
+  return (
+    <Card style={{ gap: S[3] }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between',
+                     alignItems: 'center' }}>
+        <Label>Your review</Label>
+        {!!review && !editing && <Muted>{day(review.updated_at)}</Muted>}
+      </View>
+
+      {!!err && <Muted>{err}</Muted>}
+
+      {editing || !review ? (
+        <View style={{ gap: S[4] }}>
+          <Stars value={rating} onChange={setRating} />
+          <Field label="What is it actually like?" value={body} onChange={setBody}
+                 multiline
+                 placeholder="Fit, durability, what it is good and bad at." />
+          <Btn label={review ? 'Save changes' : 'Save review'} onPress={save}
+               busy={busy} disabled={!rating} />
+          {!!review && (
+            <Btn kind="quiet" label="Cancel" onPress={() => {
+              setEditing(false); setRating(review.rating); setBody(review.body ?? '');
+            }} />
+          )}
+          {!review && (
+            <Muted>
+              Saved with what the record says right now — distance, sessions and
+              condition — so it still means something in a year.
+            </Muted>
+          )}
+        </View>
+      ) : (
+        <View style={{ gap: S[2] }}>
+          <Stars value={review.rating} />
+          {!!review.body && (
+            <Text style={[T.body, { color: P.textPri }]}>{review.body}</Text>
+          )}
+          {/* WHAT IT WAS BASED ON, at the time. Without this a rating is an
+              opinion; with it, it is a measurement someone can weigh. */}
+          {bits.length > 0 && <Muted>Written after {bits.join(' · ')}.</Muted>}
+          {!!c?.health_message && <Muted>Condition then: {c.health_message}</Muted>}
+          <View style={{ paddingTop: S[2] }}>
+            <Btn kind="quiet" label="Edit" onPress={() => setEditing(true)} />
+          </View>
+        </View>
+      )}
+    </Card>
+  );
+}
+
+/** Five taps, no half stars. A scale finer than the judgement behind it invites
+ *  precision nobody has. */
+function Stars({ value, onChange }: { value: number; onChange?: (n: number) => void }) {
+  const { P } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', gap: S[2] }}>
+      {[1, 2, 3, 4, 5].map(n => (
+        <Pressable
+          key={n}
+          disabled={!onChange}
+          onPress={() => onChange?.(n)}
+          hitSlop={8}
+          accessibilityRole={onChange ? 'radio' : 'text'}
+          accessibilityState={{ selected: n <= value }}
+          accessibilityLabel={`${n} of 5`}
+          style={{ minHeight: onChange ? TAP : undefined, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 26, color: n <= value ? P.brand : P.hairlineStrong }}>
+            {n <= value ? '★' : '☆'}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }

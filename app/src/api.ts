@@ -494,6 +494,81 @@ export const discardKitDraft = (draftId: string): Promise<null> =>
 export const getKitProvenance = (adventureId: string): Promise<RaceKitDraft | null> =>
   req(`/v1/adventures/${adventureId}/race-kit`);
 
+// ── Discover (Phase 5) ──────────────────────────────────────────────────────
+//
+// NOTHING HERE FETCHES FROM THE INTERNET. §0.4 leaves the product database
+// admin-entered in V1 and makes a scraper / affiliate API / data provider "a
+// distinct research spike for Phase 5, not an assumed dependency" — that spike
+// has not been run and no decision has been made. Every finding below is this
+// user's own rows, aggregated across adventures that were previously only ever
+// read one at a time.
+
+export type DiscoverFinding = {
+  /** gap · attention · settled. `settled` is what you do NOT need, and it is a
+   *  finding rather than an absence — see the engine on why. */
+  kind: 'gap' | 'attention' | 'settled';
+  category_key: string | null;
+  title: string;
+  detail: string;
+  adventures: string[];
+  required: boolean;
+  critical: boolean;
+  mandatory: boolean;
+  gear_item_id: string | null;
+  /** Only ever populated for REQUIRED gaps. A merely suggested category gets
+   *  an empty list and a sentence saying people finish without it. */
+  catalog: { id: string; brand: string | null; model: string | null;
+             generation: string | null; specs: Record<string, any> }[];
+};
+
+export type Discover = {
+  findings: DiscoverFinding[];
+  snapshot: Record<string, any>;
+  ruleset: string;
+};
+
+export const getDiscover = (): Promise<Discover> => req('/v1/discover');
+
+// ── reviews (Phase 5) ───────────────────────────────────────────────────────
+
+export type ReviewContext = {
+  distance_m: number; duration_s: number; sessions: number;
+  adventures: string[]; maintenance_events: number;
+  condition_pct: number | null; health_state: string;
+  health_message: string; health_ruleset: string;
+  owned_since: string | null;
+};
+
+export type Review = {
+  id: string;
+  gear_item_id: string;
+  product_id: string | null;
+  rating: number;
+  body: string | null;
+  /** SNAPSHOTTED at write time, not joined. "Four stars" after one wet weekend
+   *  and after two seasons are different statements; a live join would let the
+   *  first silently become the second. */
+  context: ReviewContext;
+  created_at: string;
+  updated_at: string;
+};
+
+export const getReview = (gearId: string): Promise<Review | null> =>
+  req(`/v1/gear/${gearId}/review`);
+
+export const putReview = (gearId: string, rating: number, body: string | null):
+  Promise<Review> =>
+  req(`/v1/gear/${gearId}/review`,
+      { method: 'PUT', body: JSON.stringify({ rating, body }) });
+
+export const deleteReview = (gearId: string): Promise<null> =>
+  req(`/v1/gear/${gearId}/review`, { method: 'DELETE' });
+
+export const listReviews = (): Promise<(Review & {
+  gear_items: { name: string; brand: string | null;
+                category_key: string | null; status: string } | null;
+})[]> => req('/v1/reviews');
+
 // ── gear usage ──────────────────────────────────────────────────────────────
 
 export const logUsage = (gearId: string, body: object): Promise<UsageEntry> =>
