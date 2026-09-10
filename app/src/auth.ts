@@ -12,6 +12,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 import { clearCache } from './cache';
+import { clearQueue } from './queue';
 import * as CFG from './config';
 
 const SB_URL = CFG.SUPABASE_URL;
@@ -167,7 +168,10 @@ export async function signOut(): Promise<void> {
   // The cache goes with the session. A locker left on disk after sign-out is
   // one person's gear readable from the next person's session on a shared
   // phone — and phones get shared at trailheads more than anywhere else.
-  await clearCache();
+  // The queue goes with the session too, and for a sharper reason than the
+  // cache: an unsent pack state belonging to the previous person would sync
+  // into the NEXT person's account the moment signal returned.
+  await Promise.all([clearCache(), clearQueue()]);
   access = ''; refreshTok = ''; expiresAt = 0; email = ''; userId = '';
   await Promise.all([K.a, K.r, K.e, K.m, K.u].map(k => SecureStore.deleteItemAsync(k)));
 }

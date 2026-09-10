@@ -28,12 +28,13 @@ from api.core.config import settings
 from api.discover.router import router as discover_router
 from api.gear.router import router as gear_router
 from api.me.router import router as me_router
+from api.notifications.router import router as notifications_router
 from api.packing.router import router as pack_router
 from api.racekit.router import router as racekit_router
 from api.reviews.router import router as reviews_router
 from api.weather.router import router as weather_router
 
-app = FastAPI(title="Voyage Outdoor API", version="0.5.0")
+app = FastAPI(title="Voyage Outdoor API", version="0.6.0")
 
 #: Paths that do not carry x-voyage-key.
 OPEN_PATHS = ("/health", "/docs", "/openapi.json", "/redoc")
@@ -63,7 +64,7 @@ async def shared_secret_guard(request: Request, call_next):
 
 for r in (me_router, activities_router, gear_router, adventures_router,
           weather_router, pack_router, ai_router, racekit_router,
-          discover_router, reviews_router):
+          discover_router, reviews_router, notifications_router):
     app.include_router(r)
 
 
@@ -72,5 +73,5 @@ def health():
     # `ai` reports whether a key is configured, not whether the last call
     # worked. The app uses it to decide whether to offer the buttons at all —
     # a "Explain this pack" button that always 503s is worse than no button.
-    return {"ok": True, "version": "0.5.0", "phase": 5,
+    return {"ok": True, "version": "0.6.0", "phase": 6,
             "ai": bool(settings.llm_api_key)}

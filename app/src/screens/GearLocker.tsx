@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { GearCategory, GearItem, listCategories, listGear } from '../api';
 import { useCached } from '../cache';
@@ -78,16 +78,41 @@ export default function GearLocker({ onOpen, onAdd }: {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: S[4], paddingTop: 0,
-                                           paddingBottom: S[12], gap: S[3] }}>
-        {gear.stale && !gear.error && (
-          <Banner text="Showing your saved locker — reconnecting." />
-        )}
-        {!!gear.error && (
-          <Banner tone="warn" text={`${gear.error} Showing what was saved.`} />
-        )}
+      {/* VIRTUALISED, not a mapped ScrollView. §28 asks for thousands of items
+          rather than demo-data assumptions, and the previous version mounted
+          every row in the locker at once — fine at nine, a visible stall at
+          five hundred, and the kind of thing that is invisible until somebody
+          with a real locker installs it.
 
-        {items.length === 0 ? (
+          The header lives here rather than above the list so that the search
+          field and filters scroll away with the content; keeping them pinned
+          costs a third of a small screen to controls nobody is using while
+          they read. */}
+      <FlatList
+        data={items}
+        keyExtractor={(item: GearItem) => item.id}
+        renderItem={({ item }: { item: GearItem }) => (
+          <GearRow item={item} onPress={() => onOpen(item.id)} />
+        )}
+        contentContainerStyle={{ padding: S[4], paddingTop: 0,
+                                 paddingBottom: S[12], gap: S[3] }}
+        keyboardShouldPersistTaps="handled"
+        // The list is already in memory and on disk (see the filter note), so
+        // this is purely about how many rows are MOUNTED at once.
+        initialNumToRender={12}
+        windowSize={7}
+        removeClippedSubviews
+        ListHeaderComponent={
+          <View style={{ gap: S[3] }}>
+            {gear.stale && !gear.error && (
+              <Banner text="Showing your saved locker — reconnecting." />
+            )}
+            {!!gear.error && (
+              <Banner tone="warn" text={`${gear.error} Showing what was saved.`} />
+            )}
+          </View>
+        }
+        ListEmptyComponent={
           <Empty
             title={q || category ? 'Nothing matches' : 'Your locker is empty'}
             body={q || category
@@ -97,18 +122,21 @@ export default function GearLocker({ onOpen, onAdd }: {
               ? <View style={{ minWidth: 200 }}><Btn label="Add gear" onPress={onAdd} /></View>
               : undefined}
           />
-        ) : items.map(item => (
-          <GearRow key={item.id} item={item} onPress={() => onOpen(item.id)} />
-        ))}
-
-        <Pressable onPress={() => setShowRetired(r => !r)}
-                   hitSlop={10}
-                   style={{ minHeight: TAP, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={[T.caption, { color: P.brand }]}>
-            {showRetired ? 'Hide retired gear' : 'Show retired gear'}
-          </Text>
-        </Pressable>
-      </ScrollView>
+        }
+        ListFooterComponent={
+          <Pressable onPress={() => setShowRetired(r => !r)}
+                     hitSlop={10}
+                     accessibilityRole="button"
+                     accessibilityLabel={showRetired
+                       ? 'Hide retired gear' : 'Show retired gear'}
+                     style={{ minHeight: TAP, justifyContent: 'center',
+                              alignItems: 'center' }}>
+            <Text style={[T.caption, { color: P.brand }]}>
+              {showRetired ? 'Hide retired gear' : 'Show retired gear'}
+            </Text>
+          </Pressable>
+        }
+      />
     </View>
   );
 }
@@ -135,7 +163,13 @@ function GearRow({ item, onPress }: { item: GearItem; onPress: () => void }) {
   const subtitle = [item.brand, item.model, item.size && `Size ${item.size}`]
     .filter(Boolean).join(' · ');
   return (
-    <Card onPress={onPress} style={{ opacity: retired ? 0.6 : 1 }}>
+    <Card onPress={onPress} style={{ opacity: retired ? 0.6 : 1 }}
+          // One sentence, not six fragments. Without it VoiceOver walks the
+          // card's children and reads "Norda 005, Norda 005, Shoes, 210 g".
+          accessibilityLabel={[item.name, subtitle,
+                               item.favorite ? 'favourite' : null,
+                               retired ? item.status : null]
+                                .filter(Boolean).join(', ')}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[3] }}>
         <View style={{ flex: 1, gap: S[1] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[2] }}>

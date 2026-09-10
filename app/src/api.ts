@@ -569,6 +569,38 @@ export const listReviews = (): Promise<(Review & {
                 category_key: string | null; status: string } | null;
 })[]> => req('/v1/reviews');
 
+// ── notifications (Phase 6) ─────────────────────────────────────────────────
+//
+// The server DECIDES; the device delivers. There is no scheduler on the API
+// (Phase 0, risk #3), so nothing can push at the right moment — but a local
+// notification scheduled today fires in three days with no signal, which is the
+// situation §21 is actually about.
+
+export type PlannedNotification = {
+  /** Stable across regenerations, so cancel-all-and-reschedule is idempotent. */
+  key: string;
+  kind: 'pack_reminder' | 'critical_unverified' | 'maintenance_due';
+  /** Local date and hour, NOT a timestamp — the server does not know which
+   *  timezone the runner is standing in, and "the evening before" is local. */
+  on: string;
+  hour: number;
+  title: string;
+  body: string;
+  subject_type: 'adventure' | 'gear_item';
+  subject_id: string;
+};
+
+export type NotificationPlan = {
+  ruleset: string;
+  today: string;
+  daily_cap: number;
+  notifications: PlannedNotification[];
+  note: string;
+};
+
+export const getNotificationPlan = (today: string): Promise<NotificationPlan> =>
+  req(`/v1/notifications/plan${qs({ today })}`);
+
 // ── gear usage ──────────────────────────────────────────────────────────────
 
 export const logUsage = (gearId: string, body: object): Promise<UsageEntry> =>

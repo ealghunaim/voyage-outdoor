@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 
 import { Me, getMe, patchPreferences } from '../api';
 import { getEmail, signOut } from '../auth';
 import { useCached } from '../cache';
-import { Banner, Btn, Card, Chip, H, Label, Loading, Muted, Row, Screen } from '../components/ui';
+import {
+  Banner, Btn, Card, Chip, H, Label, Loading, Muted, Row, Screen, Toggle,
+} from '../components/ui';
 import { APP_VERSION } from '../config';
-import { S, useTheme } from '../theme';
+import {
+  disableNotifications, enableNotifications, notificationsEnabled,
+} from '../notify';
+import { S, T, useTheme } from '../theme';
 
 export default function Profile({ onSignedOut }: { onSignedOut: () => void }) {
   const { P, mode } = useTheme();
@@ -70,6 +75,8 @@ export default function Profile({ onSignedOut }: { onSignedOut: () => void }) {
         </View>
       </Card>
 
+      <NotificationsCard />
+
       <Card style={{ gap: S[2] }}>
         <Label>Appearance</Label>
         <Row label="Theme" value={`Following your device · ${mode}`} />
@@ -82,11 +89,85 @@ export default function Profile({ onSignedOut }: { onSignedOut: () => void }) {
       <Card style={{ gap: S[1] }}>
         <Label>About</Label>
         <Row label="Version" value={APP_VERSION || '—'} />
-        <Row label="Phase" value="1 — Foundation" />
+        <Row label="Phase" value="6 — Polish" />
         <Row label="Activity" value="Trail running" />
       </Card>
 
       <Btn kind="quiet" label="Sign out" tone={P.danger} onPress={confirmSignOut} />
     </Screen>
+  );
+}
+
+
+/**
+ * The notification switch (§21).
+ *
+ * OFF UNTIL SOMEBODY ASKS. The system permission prompt appears when this is
+ * turned on, not at launch — an app that asks before it has done anything gets
+ * "Don't Allow", and iOS never asks again. By the time a runner comes here they
+ * know what the app is for.
+ *
+ * What it can and cannot send is stated plainly rather than implied. Two of
+ * §21's five kinds are missing for structural reasons, and a settings screen
+ * that quietly omits them leaves someone waiting for a weather alert that is
+ * never coming.
+ */
+function NotificationsCard() {
+  const { P } = useTheme();
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  React.useEffect(() => { notificationsEnabled().then(setOn); }, []);
+
+  const toggle = async (next: boolean) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      if (!next) {
+        await disableNotifications();
+        setOn(false);
+        return;
+      }
+      const result = await enableNotifications();
+      if (result.reason === 'denied') {
+        setOn(false);
+        setNote('iOS is blocking notifications for this app. Settings → '
+                + 'Voyage Outdoor → Notifications.');
+      } else if (result.reason === 'offline') {
+        setOn(true);
+        setNote('On — but the plan could not be fetched just now. It will '
+                + 'schedule next time you have signal.');
+      } else {
+        setOn(true);
+        setNote(result.scheduled
+          ? `On. ${result.scheduled} reminder(s) scheduled.`
+          : 'On. Nothing to remind you about yet — which usually means '
+            + 'everything is packed.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={{ gap: S[3] }}>
+      <Label>Notifications</Label>
+      <Toggle label="Packing and maintenance reminders" value={on}
+              onChange={v => !busy && toggle(v)} />
+      <Muted>
+        A nudge a week, two days and one day before an adventure — and one the
+        evening before if a critical item is still unverified. It stops the
+        moment your pack is finished.
+      </Muted>
+      {/* Said out loud. Two of the five kinds §21 lists are not here, and
+          leaving that to be discovered is how somebody waits for a weather
+          alert that was never going to arrive. */}
+      <Muted>
+        Weather-change and new-release alerts are not included yet: the first
+        needs a scheduler on the server, the second needs a product catalog.
+      </Muted>
+      {!!note && <Text style={[T.caption, { color: P.textSec }]}>{note}</Text>}
+    </Card>
   );
 }

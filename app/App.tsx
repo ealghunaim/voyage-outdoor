@@ -7,13 +7,15 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Text, View } from 'react-native';
 import {
   SafeAreaProvider, SafeAreaView, useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 
 import { setAuthFailHandler } from './src/api';
 import { loadSession } from './src/auth';
+import { syncNotifications } from './src/notify';
+import { flush } from './src/queue';
 import { TabIcon } from './src/components/icons';
 import AdventureDetail from './src/screens/AdventureDetail';
 import AdventureForm from './src/screens/AdventureForm';
@@ -182,6 +184,29 @@ export default function App() {
       setBooting(false);
     })();
   }, []);
+
+  // COMING BACK TO THE FOREGROUND IS WHEN SIGNAL RETURNS. The phone came out of
+  // a pocket at the finish, or off aeroplane mode. Two things are owed at that
+  // moment and neither belongs to any one screen:
+  //
+  //   * pack states ticked with no connection go up (queue.ts),
+  //   * reminders are recomputed against a record that has since changed —
+  //     otherwise the evening's notification describes yesterday's pack.
+  //
+  // Both are no-ops when there is nothing to do, so this is cheap to run on
+  // every foreground rather than trying to be clever about when.
+  useEffect(() => {
+    if (!authed) return;
+    const run = () => {
+      flush().catch(() => {});
+      syncNotifications().catch(() => {});
+    };
+    run();
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') run();
+    });
+    return () => sub.remove();
+  }, [authed]);
 
   // A FONT THAT FAILS TO LOAD IS NOT A REASON TO HOLD THE APP HOSTAGE. useFonts
   // reports the error and keeps `fontsReady` false forever; blocking on it

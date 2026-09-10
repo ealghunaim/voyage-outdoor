@@ -21,6 +21,7 @@ SUPABASE_PUBLISHABLE_KEY to sign in the way the app does.
 import json
 import os
 import sys
+from collections import Counter
 
 import httpx
 
@@ -65,9 +66,31 @@ def check(label, condition, detail=""):
 
 
 with httpx.Client(timeout=30) as c:
-    # ── a confirmed user, via the admin API (no email is sent) ──────────────
     admin = {"apikey": SEC, "Authorization": f"Bearer {SEC}",
              "Content-Type": "application/json"}
+
+    # ── CLEAN UP BEFORE, NOT ONLY AFTER ────────────────────────────────────
+    #
+    # A run that dies before teardown — a 404 on a route that had not been
+    # deployed yet, a dropped connection, Ctrl-C — leaves its accounts behind.
+    # The NEXT run then finds "already exists", signs in, and inherits a locker
+    # and four adventures from the last attempt. Every count-based assertion
+    # drifts, and the failures look exactly like regressions in whatever was
+    # being built that day. This happened: seven failures, then one, then none,
+    # over three identical runs.
+    #
+    # Deleting first makes a run idempotent regardless of how the last one
+    # ended. The teardown at the bottom stays — it is what keeps a development
+    # project clean between sessions — but correctness no longer depends on it
+    # having succeeded.
+    stale = [u for u in c.get(f"{SB}/auth/v1/admin/users", headers=admin)
+             .json().get("users", []) if u["email"] in (EMAIL, OTHER)]
+    for u in stale:
+        c.delete(f"{SB}/auth/v1/admin/users/{u['id']}", headers=admin)
+    if stale:
+        print(f"cleared {len(stale)} account(s) left over from a previous run")
+
+    # ── a confirmed user, via the admin API (no email is sent) ──────────────
     r = c.post(f"{SB}/auth/v1/admin/users", headers=admin,
                json={"email": EMAIL, "password": PASSWORD, "email_confirm": True})
     if r.status_code not in (200, 201) and "already" not in r.text.lower():
@@ -251,6 +274,9 @@ with httpx.Client(timeout=30) as c:
     print("\nADVENTURES")
     from datetime import date, timedelta
     soon = (date.today() + timedelta(days=3)).isoformat()
+    #: The device's "today" for the notification plan. Today, not a
+    #: fixed string: a plan is only ever computed relative to now.
+    soon_minus_3 = date.today().isoformat()
     far = (date.today() + timedelta(days=300)).isoformat()
 
     adv = c.post(f"{API}/v1/adventures", headers=H, json={
@@ -744,6 +770,38 @@ with httpx.Client(timeout=30) as c:
     check("a malformed product id is refused before the database",
           c.get(f"{API}/v1/products/not-a-uuid/reviews",
                 headers=H).status_code == 422)
+
+    # ── Phase 6: the notification plan ─────────────────────────────────────
+    print("\nNOTIFICATIONS")
+    # `today` is the DEVICE's local date — the server does not know which day it
+    # is where the runner is standing, and "the evening before" is a local idea.
+    plan_r = c.get(f"{API}/v1/notifications/plan", headers=H,
+                   params={"today": soon_minus_3})
+    check("the plan reads", plan_r.status_code == 200, f"HTTP {plan_r.status_code}")
+    plan = plan_r.json()
+    check("stamped with its ruleset", plan["ruleset"] == "notify-v1",
+          f"{len(plan['notifications'])} notification(s), cap {plan['daily_cap']}")
+    check("and says what it deliberately cannot send",
+          "scheduler" in plan["note"] and "catalog" in plan["note"],
+          "§21 lists five kinds; two need things this build does not have")
+
+    check("nothing is scheduled in the past",
+          all(n["on"] >= soon_minus_3 for n in plan["notifications"]),
+          "a notification dated yesterday never fires, which looks identical "
+          "to the feature being broken")
+    check("the daily cap is respected",
+          max(list(Counter(n["on"] for n in plan["notifications"]).values()) or [0])
+          <= plan["daily_cap"])
+    blob = " ".join(n["title"] + " " + n["body"]
+                    for n in plan["notifications"]).lower()
+    check("a notification never tells you to go shopping",
+          not any(w in blob for w in ("buy", "purchase", "shop")), "§14")
+
+    check("a malformed date is refused",
+          c.get(f"{API}/v1/notifications/plan", headers=H,
+                params={"today": "yesterday"}).status_code == 422)
+    check("another account gets their own plan",
+          c.get(f"{API}/v1/notifications/plan", headers=H2).json()["notifications"] == [])
 
     # ── teardown ───────────────────────────────────────────────────────────
     # Deleting the auth user cascades: profiles.id references auth.users on

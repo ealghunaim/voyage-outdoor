@@ -7,6 +7,7 @@ import {
   getPack, setPackItemState, writeNarrative,
 } from '../api';
 import { useCached } from '../cache';
+import { Pending, enqueue, flush, overlay, pendingFor } from '../queue';
 import {
   Banner, Btn, Card, H, Label, Loading, Muted, Pill, Screen,
 } from '../components/ui';
@@ -47,8 +48,33 @@ export default function Pack({ adventureId, title, onAsk, onBack }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLeave, setShowLeave] = useState(false);
+  const [queued, setQueued] = useState<Pending[]>([]);
 
-  const data = pack.data;
+  // Send anything left over from a previous session, then read what is still
+  // waiting. Both on mount, because that is the moment signal usually comes
+  // back — the phone came out of a pocket at the finish.
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      const result = await flush();
+      if (!alive) return;
+      setQueued(await pendingFor(adventureId));
+      // Only refresh when something actually reached the server, so a plain
+      // screen open on a dead connection does not fire a doomed request.
+      if (result.sent > 0) pack.refresh();
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adventureId]);
+
+  // THE SERVER'S ANSWER IS NOT THE TRUTH WHILE A WRITE IS STILL WAITING.
+  // Without this, reopening the screen while still offline shows the states the
+  // server last knew about — the app forgetting what you just did, which is
+  // worse than never having queued it.
+  const data = useMemo(() => {
+    if (!pack.data || !queued.length) return pack.data;
+    return recount({ ...pack.data, items: overlay(pack.data.items, queued) });
+  }, [pack.data, queued]);
 
   const grouped = useMemo(() => {
     const map = new Map<Classification, PackItem[]>();
@@ -89,8 +115,36 @@ export default function Pack({ adventureId, title, onAsk, onBack }: {
     try {
       await setPackItemState(adventureId, item.id, next);
     } catch (e: any) {
-      setError(e?.message ?? 'That did not save.');
-      await pack.refresh();
+      // NO SIGNAL IS NOT A FAILED WRITE. Reverting here — which is what the
+      // refresh below used to do unconditionally — meant a tap in a car park
+      // with no bars undid itself, on the one screen §20 names as the one that
+      // has to work offline. A dropped connection queues; a server that
+      // answered and refused is a real error and still says so.
+      if (typeof e?.status !== 'number') {
+        await enqueue(adventureId, item.id, next);
+        setQueued(await pendingFor(adventureId));
+      } else {
+        setError(e?.message ?? 'That did not save.');
+        await pack.refresh();
+      }
+    }
+  };
+
+  const sync = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await flush();
+      setQueued(await pendingFor(adventureId));
+      if (result.sent > 0) await pack.refresh();
+      if (result.left > 0) setError('Still no connection — they are kept.');
+      if (result.dropped > 0) {
+        setError(`${result.dropped} change(s) could not be applied — those `
+                 + `items have changed on the server.`);
+        await pack.refresh();
+      }
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -123,6 +177,22 @@ export default function Pack({ adventureId, title, onAsk, onBack }: {
       <H>{title}</H>
       {pack.stale && <Banner text="Saved copy — reconnecting." />}
       {!!error && <Banner tone="error" text={error} />}
+
+      {/* Said plainly, with a way to act on it. A pack that quietly holds
+          unsent changes is a pack somebody arrives at a kit check believing is
+          synced — and the states are on THIS phone, which is the one they are
+          holding, so nothing is lost either way. */}
+      {queued.length > 0 && (
+        <Card style={{ gap: S[3] }}>
+          <Label>Waiting for signal</Label>
+          <Text style={[T.body, { color: P.textSec }]}>
+            {queued.length} change{queued.length === 1 ? '' : 's'} saved on this
+            phone and not sent yet. The list above is up to date; they will go
+            when you are back in range.
+          </Text>
+          <Btn kind="quiet" label="Try now" onPress={sync} busy={busy} />
+        </Card>
+      )}
 
       <Readiness readiness={r} />
 

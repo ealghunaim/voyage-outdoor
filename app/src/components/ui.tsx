@@ -51,8 +51,13 @@ export function Btn({ label, onPress, kind = 'primary', disabled, busy, tone }: 
   );
 }
 
-export function Card({ children, style, onPress }: {
+export function Card({ children, style, onPress, accessibilityLabel }: {
   children: React.ReactNode; style?: ViewStyle; onPress?: () => void;
+  /** Required in spirit whenever `onPress` is set. A tappable card reads to
+   *  VoiceOver as its children concatenated — "Norda 005 Norda 005 Shoes 210 g
+   *  chevron" — which is technically labelled and practically unusable. One
+   *  sentence saying what the card is beats six fragments saying what is in it. */
+  accessibilityLabel?: string;
 }) {
   const { P, E } = useTheme();
   const body = (
@@ -68,7 +73,15 @@ export function Card({ children, style, onPress }: {
   );
   if (!onPress) return body;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      // Collapses the children into one element for the screen reader when a
+      // label is given; without this VoiceOver still walks the fragments
+      // underneath and reads the card twice.
+      accessible={!!accessibilityLabel}
+      style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}>
       {body}
     </Pressable>
   );
@@ -202,6 +215,10 @@ export function Field({ label, value, onChange, placeholder, secure, keyboardTyp
           }]}
           value={value}
           onChangeText={onChange}
+          // Without this VoiceOver announces "text field" with no name — the
+          // visible <Label> above is a sibling, not an association, so the one
+          // thing that says what to type is the one thing not read out.
+          accessibilityLabel={label + (unit ? `, in ${unit}` : '')}
           placeholder={placeholder}
           placeholderTextColor={P.textMuted}
           // An address field that capitalises its first letter produces

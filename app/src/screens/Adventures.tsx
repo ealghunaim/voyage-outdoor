@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { SectionList, Text, View } from 'react-native';
 
 import { Adventure, AdventureStatus, listAdventures } from '../api';
 import { useCached } from '../cache';
@@ -56,8 +56,8 @@ export default function Adventures({ onOpen, onCreate }: {
 
   if (list.loading) return <Loading label="Loading your adventures…" />;
 
-  return (
-    <Screen>
+  const header = (
+    <View style={{ gap: S[3] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center',
                      justifyContent: 'space-between', paddingTop: S[2] }}>
         <Text style={[T.display, { color: P.textPri }]}>Adventures</Text>
@@ -66,43 +66,63 @@ export default function Adventures({ onOpen, onCreate }: {
       {list.stale && !list.error && <Banner text="Saved copy — reconnecting." />}
       {!!list.error && <Banner tone="warn" text={`${list.error} Showing what was saved.`} />}
 
-      {items.length === 0 ? (
-        <Empty
-          title="No adventures yet"
-          body="An adventure is what you are actually doing — a race, a long day out. Everything else works from it: what to pack, which shoes, what the weather is doing."
-          action={<View style={{ minWidth: 220 }}>
-            <Btn label="Plan an adventure" onPress={onCreate} />
-          </View>}
-        />
-      ) : (
-        <>
-          <Btn label="Plan an adventure" onPress={onCreate} />
+      {items.length > 0 && <Btn label="Plan an adventure" onPress={onCreate} />}
+    </View>
+  );
 
-          {upcoming.length > 0 && (
-            <View style={{ gap: S[3], paddingTop: S[2] }}>
-              <Label>Upcoming</Label>
-              {upcoming.map(a => (
-                <Row key={a.id} adventure={a} onPress={() => onOpen(a.id)} />
-              ))}
+  // SCROLL={FALSE}, and that is load-bearing rather than tidy: a SectionList
+  // inside Screen's ScrollView is the nested-VirtualizedList anti-pattern —
+  // React Native warns about it, and it virtualises nothing, because the outer
+  // scroller gives the inner list unbounded height so every row stays mounted.
+  // The header goes into ListHeaderComponent instead, which also lets it scroll
+  // away with the content.
+  return (
+    <Screen scroll={false} padded={false}>
+      <SectionList
+        sections={[
+          ...(upcoming.length ? [{ title: 'Upcoming', data: upcoming }] : []),
+          ...(past.length ? [{ title: 'Past', data: past }] : []),
+        ]}
+        keyExtractor={a => a.id}
+        renderItem={({ item, section }) => (
+          <View style={{ paddingBottom: S[3] }}>
+            <Row adventure={item} onPress={() => onOpen(item.id)}
+                 past={section.title === 'Past'} />
+          </View>
+        )}
+        renderSectionHeader={({ section }) => (
+          <View style={{ paddingTop: S[2], paddingBottom: S[3] }}>
+            <Label>{section.title}</Label>
+          </View>
+        )}
+        // ADVENTURES ACCUMULATE. A season is thirty; five seasons is a hundred
+        // and fifty, and none are ever deleted because the mileage hangs off
+        // them. §28 asks for thousands rather than demo-data assumptions.
+        initialNumToRender={10}
+        windowSize={7}
+        removeClippedSubviews
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          <Empty
+            title="No adventures yet"
+            body="An adventure is what you are actually doing — a race, a long day out. Everything else works from it: what to pack, which shoes, what the weather is doing."
+            action={<View style={{ minWidth: 220 }}>
+              <Btn label="Plan an adventure" onPress={onCreate} />
+            </View>}
+          />
+        }
+        ListFooterComponent={
+          items.length > 0 ? (
+            <View style={{ paddingTop: S[2] }}>
+              <Btn kind="quiet"
+                   label={showArchived ? 'Hide archived' : 'Show archived'}
+                   onPress={() => setShowArchived(s => !s)} />
             </View>
-          )}
-
-          {past.length > 0 && (
-            <View style={{ gap: S[3], paddingTop: S[4] }}>
-              <Label>Past</Label>
-              {past.map(a => (
-                <Row key={a.id} adventure={a} onPress={() => onOpen(a.id)} past />
-              ))}
-            </View>
-          )}
-        </>
-      )}
-
-      {items.length > 0 && (
-        <Btn kind="quiet"
-             label={showArchived ? 'Hide archived' : 'Show archived'}
-             onPress={() => setShowArchived(s => !s)} />
-      )}
+          ) : null
+        }
+        contentContainerStyle={{ padding: S[4], paddingBottom: S[12] }}
+      />
     </Screen>
   );
 }
@@ -122,7 +142,11 @@ function Row({ adventure, onPress, past }: {
   const gain = adventure.attributes?.elevation_gain_m;
 
   return (
-    <Card onPress={onPress} style={{ opacity: past ? 0.75 : 1 }}>
+    <Card onPress={onPress} style={{ opacity: past ? 0.75 : 1 }}
+          accessibilityLabel={[adventure.title, countdown(adventure),
+                               adventure.place_name,
+                               km ? `${km} kilometres` : null]
+                                .filter(Boolean).join(', ')}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[3] }}>
         <View style={{ flex: 1, gap: S[2] }}>
           <Text style={[T.title, { color: P.textPri }]} numberOfLines={1}>
