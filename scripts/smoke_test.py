@@ -625,6 +625,126 @@ with httpx.Client(timeout=30) as c:
               c.post(f"{API}/v1/adventures/{race['id']}/pack/narrative",
                      headers=H2).status_code == 404)
 
+    # ── Phase 5: Discover and reviews ──────────────────────────────────────
+    #
+    # No model is called anywhere in this section and no external request is
+    # made — that is the §0.4 constraint the whole phase is built on, and it is
+    # worth asserting rather than assuming.
+    print("\nDISCOVER")
+    disc = c.get(f"{API}/v1/discover", headers=H)
+    check("discover reads", disc.status_code == 200, f"HTTP {disc.status_code}")
+    found = disc.json()
+    findings = found["findings"]
+    kinds = {}
+    for f in findings:
+        kinds[f["kind"]] = kinds.get(f["kind"], 0) + 1
+    check("it is stamped with its ruleset", found["ruleset"] == "discover-v1",
+          f"{len(findings)} finding(s): {kinds}")
+
+    gaps = [f for f in findings if f["kind"] == "gap"]
+    check("the pack's missing lines surfaced as gaps", len(gaps) > 0,
+          f"{len(gaps)}")
+    check("a gap names the adventures it came from",
+          all(f["adventures"] for f in gaps),
+          gaps[0]["adventures"][0] if gaps else "")
+    check("a race-mandated gap is marked as such",
+          any(f["mandatory"] and f["critical"] for f in gaps),
+          "§24 outranks every other rule and the screen has to say so")
+
+    # §8 and §14, the line between a tool and a storefront.
+    optional_gaps = [f for f in gaps if not f["required"]]
+    check("a merely suggested gap is offered no products",
+          all(not f["catalog"] for f in optional_gaps),
+          f"{len(optional_gaps)} optional gap(s), none with a catalog")
+    check("and says plainly that it is optional",
+          all("finish without" in f["detail"] for f in optional_gaps)
+          if optional_gaps else True)
+
+    blob = " ".join(f["title"] + " " + f["detail"] for f in findings).lower()
+    check("nothing in discover says buy",
+          not any(w in blob for w in ("buy", "purchase", "shop", "price")),
+          "§14 — the trust anchor")
+
+    # SETTLED NEEDS SOMETHING TO SETTLE. The race above runs 11 hours into the
+    # dark, so every rule fires and nothing gets ruled out — which is correct,
+    # and means the trust anchor goes untested unless the fixture gives it
+    # something. A daylight run does: `headlamp_no_darkness` classifies the
+    # headlamp NOT_NEEDED, and that is the finding §14 exists to produce.
+    day_run = c.post(f"{API}/v1/adventures", headers=H, json={
+        "activity_key": "trail_running", "title": "Daylight loop",
+        "place_name": "Bidiyah", "lat": 22.45, "lng": 58.80,
+        "start_date": soon,
+        "attributes": {"distance_km": 12, "expected_hours": 1.5,
+                       "night_hours": 0},
+    }).json()
+    c.post(f"{API}/v1/adventures/{day_run['id']}/pack", headers=H)
+
+    after = c.get(f"{API}/v1/discover", headers=H).json()["findings"]
+    settled = [f for f in after if f["kind"] == "settled"]
+    check("settled reports what you do NOT need",
+          any(f["category_key"] == "headlamp" for f in settled),
+          f"{len(settled)} settled · "
+          + (settled[0]["detail"] if settled else "none"))
+    check("and it names the adventure that ruled it out",
+          all(f["adventures"] for f in settled),
+          "'a rule ruled it out' is only checkable if it says which rule, where")
+
+    blob2 = " ".join(f["detail"] for f in settled).lower()
+    check("saying you do not need something still never says buy",
+          not any(w in blob2 for w in ("buy", "purchase", "shop")))
+
+    check("another account sees their own empty record, not yours",
+          len(c.get(f"{API}/v1/discover", headers=H2).json()["findings"]) == 0)
+
+    print("\nREVIEWS")
+    none_yet = c.get(f"{API}/v1/gear/{shoe['id']}/review", headers=H)
+    check("an unreviewed item answers null rather than 404",
+          none_yet.status_code == 200 and none_yet.json() is None)
+
+    wrote = c.put(f"{API}/v1/gear/{shoe['id']}/review", headers=H,
+                  json={"rating": 4, "body": "Grippy on rock, drains slowly."})
+    check("a review saves", wrote.status_code == 200,
+          f"HTTP {wrote.status_code} {wrote.text[:120]}")
+    rev = wrote.json()
+    ctx = rev["context"]
+    check("and snapshots what it was based on",
+          ctx["sessions"] > 0 and ctx["distance_m"] > 0,
+          f"{ctx['sessions']} sessions · {ctx['distance_m']/1000:.1f} km")
+    check("including the health band in the engine's words",
+          "health_message" in ctx and ctx["health_ruleset"] == "health-v1",
+          ctx.get("health_message"))
+
+    # THE SNAPSHOT MUST NOT MOVE. A review written at 114 km that silently
+    # starts claiming 214 is a review rewriting itself.
+    c.post(f"{API}/v1/gear/{shoe['id']}/usage", headers=H,
+           json={"occurred_on": "2026-03-02", "distance_m": 100000})
+    still = c.get(f"{API}/v1/gear/{shoe['id']}/review", headers=H).json()
+    check("logging another run does not rewrite the review's context",
+          still["context"]["distance_m"] == ctx["distance_m"],
+          f"still {ctx['distance_m']/1000:.1f} km after +100 km")
+
+    again = c.put(f"{API}/v1/gear/{shoe['id']}/review", headers=H,
+                  json={"rating": 5, "body": "Better once broken in."})
+    check("writing again edits rather than duplicating",
+          again.status_code == 200
+          and len(c.get(f"{API}/v1/reviews", headers=H).json()) == 1,
+          "one review per item per person")
+    check("and the new context reflects the new mileage",
+          again.json()["context"]["distance_m"] > ctx["distance_m"])
+
+    check("ratings outside 1-5 are refused",
+          c.put(f"{API}/v1/gear/{shoe['id']}/review", headers=H,
+                json={"rating": 9}).status_code == 422)
+    check("another account cannot read this review",
+          c.get(f"{API}/v1/gear/{shoe['id']}/review",
+                headers=H2).status_code == 404)
+    check("another account cannot write one on your gear",
+          c.put(f"{API}/v1/gear/{shoe['id']}/review", headers=H2,
+                json={"rating": 1}).status_code == 404)
+    check("a malformed product id is refused before the database",
+          c.get(f"{API}/v1/products/not-a-uuid/reviews",
+                headers=H).status_code == 422)
+
     # ── teardown ───────────────────────────────────────────────────────────
     # Deleting the auth user cascades: profiles.id references auth.users on
     # delete cascade, and every table here hangs off profiles the same way. So
