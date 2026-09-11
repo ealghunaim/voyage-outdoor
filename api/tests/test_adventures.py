@@ -72,11 +72,17 @@ def test_a_built_activity_is_accepted():
     assert AdventureCreate(**_body()).activity_key == "trail_running"
 
 
-@pytest.mark.parametrize("activity", ["hiking", "fishing", "fly_fishing"])
+def test_fishing_is_accepted_now_that_it_is_built():
+    assert AdventureCreate(**_body(activity_key="fishing")).activity_key == "fishing"
+
+
+@pytest.mark.parametrize("activity", ["hiking", "fly_fishing"])
 def test_schema_only_activities_are_refused(activity):
     """These exist so the attribute model is exercised by more than one
     consumer. They have no screens and no rule set, so an adventure created
-    against one would be a row that looks like a feature and is a dead end."""
+    against one would be a row that looks like a feature and is a dead end.
+
+    Fishing left this list in Phase 7 — it has both now."""
     with pytest.raises(ValidationError) as e:
         AdventureCreate(**_body(activity_key=activity))
     assert "not built yet" in str(e.value)

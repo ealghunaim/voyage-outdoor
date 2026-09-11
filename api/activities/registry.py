@@ -14,8 +14,13 @@ Master Prompt §3 says hiking, fishing and fly fishing must not require rework
 to add later. That claim is untestable while trail running is the only consumer
 — any shape holds for a sample of one. So all four schemas exist, and
 test_activity_schemas.py exercises the loader, the validator and the serialiser
-against every one of them. Only trail_running has `built = True`; nothing in the
-app reaches the others.
+against every one of them.
+
+As of Phase 7 TWO are built — trail_running and fishing — which is the first
+point at which the claim above is tested rather than asserted. What it cost is
+recorded in engines/tackle.py and in the activity dispatch in engines/pack.py:
+the attribute model held without a structural change, and the two ENGINES did
+not. hiking and fly_fishing remain defined and unreachable.
 
 FIELD SPEC
 ----------
@@ -173,32 +178,123 @@ HIKING = {
     },
 }
 
+# ── fishing — THE SECOND ONE THAT IS BUILT (Phase 7) ────────────────────────
+#
+# TECHNIQUE IS A PROPERTY OF THE GEAR, and that is the thing trail running never
+# needed. A trail shoe is not "for" a race type; it is a shoe. A rod IS for
+# popping or for jigging, and the two are different tools — a popping rod is
+# eight feet and more, throwing 100-150 g lures on the surface; a jigging rod is
+# nearer six, working 150-300 g vertically under the boat. Put the wrong one in
+# the wrong hand and it is not a preference, it is a broken blank.
+#
+# It drops into the attribute model without a structural change, which is the
+# claim §0.4 made and the thing this phase exists to test. `technique` is a
+# multi_enum because a rod genuinely can be rated for both.
+#
+# THE PE SCALE. Japanese braid sizing, and the number every rod, reel and line
+# in this discipline is labelled with. It is a diameter standard, not a strength
+# one — PE8 is roughly 80-100 lb depending on the maker — which is exactly why
+# the compatibility rules below reason in PE where the tackle does and in pounds
+# where the tackle does, rather than converting between them and pretending the
+# result is exact.
+
+TECHNIQUES = ["popping", "jigging", "casting", "trolling", "bottom"]
+
 FISHING = {
     "version": SCHEMA_VERSION,
     "gear": {
-        "rod":    {"length_ft": {"type": "number", "label": "Length", "unit": "ft", "min": 3, "max": 15},
-                   "cast_weight_g": {"type": "number", "label": "Cast weight", "unit": "g", "min": 0, "max": 500},
-                   "pieces": {"type": "int", "label": "Pieces", "min": 1, "max": 6},
-                   "action": {"type": "enum", "label": "Action",
-                              "options": ["slow", "moderate", "fast", "extra_fast"]}},
-        "reel":   {"size": {"type": "string", "label": "Size"},
-                   "gear_ratio": {"type": "string", "label": "Gear ratio"},
-                   "drag_kg": {"type": "number", "label": "Max drag", "unit": "kg", "min": 0, "max": 40},
-                   "line_capacity": {"type": "string", "label": "Line capacity"}},
-        "line":   {"kind": {"type": "enum", "label": "Type", "options": ["mono", "fluoro", "braid"]},
-                   "lb_test": {"type": "number", "label": "Test", "unit": "lb", "min": 0, "max": 300}},
-        "lure":   {"weight_g": {"type": "number", "label": "Weight", "unit": "g", "min": 0, "max": 500},
-                   "kind": {"type": "enum", "label": "Type",
-                            "options": ["popper", "stickbait", "jig", "minnow", "soft_plastic"]}},
+        "rod": {
+            "technique":     {"type": "multi_enum", "label": "Technique", "options": TECHNIQUES},
+            "length_ft":     {"type": "number", "label": "Length", "unit": "ft", "min": 3, "max": 15},
+            "pe_min":        {"type": "number", "label": "PE rating from", "min": 0.4, "max": 20},
+            "pe_max":        {"type": "number", "label": "PE rating to", "min": 0.4, "max": 20},
+            "cast_weight_min_g": {"type": "number", "label": "Casts from", "unit": "g", "min": 0, "max": 500},
+            "cast_weight_max_g": {"type": "number", "label": "Casts to", "unit": "g", "min": 0, "max": 500},
+            "jig_weight_max_g":  {"type": "number", "label": "Max jig", "unit": "g", "min": 0, "max": 1000},
+            "pieces":        {"type": "int", "label": "Pieces", "min": 1, "max": 6},
+            "action":        {"type": "enum", "label": "Action",
+                              "options": ["slow", "moderate", "fast", "extra_fast"]},
+        },
+        "reel": {
+            "technique":     {"type": "multi_enum", "label": "Technique", "options": TECHNIQUES},
+            # A STRING, not a number, and deliberately. Shimano's 18000 and
+            # Daiwa's 6500 describe similar reels; the number means something
+            # only inside one maker's range. `size_class` below is what the
+            # rules actually reason over.
+            "size":          {"type": "string", "label": "Size"},
+            "size_class":    {"type": "enum", "label": "Class",
+                              "options": ["light", "medium", "heavy", "extra_heavy"]},
+            "gear_ratio":    {"type": "string", "label": "Gear ratio"},
+            "drag_kg":       {"type": "number", "label": "Max drag", "unit": "kg", "min": 0, "max": 40},
+            "pe_capacity":   {"type": "number", "label": "Rated for PE", "min": 0.4, "max": 20},
+            "line_capacity": {"type": "string", "label": "Line capacity"},
+            "sealed":        {"type": "bool", "label": "Sealed body"},
+        },
+        "line": {
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["braid", "mono", "fluoro"]},
+            "pe":            {"type": "number", "label": "PE", "min": 0.4, "max": 20},
+            "lb_test":       {"type": "number", "label": "Breaking strain", "unit": "lb", "min": 0, "max": 400},
+            "metres":        {"type": "int", "label": "Length", "unit": "m", "min": 0, "max": 2000},
+        },
+        # ITS OWN CATEGORY, not a variant of line. §11 names LINE↔LEADER as a
+        # relationship in its own right, and the leader is the part that touches
+        # the fish — for GT it is the difference between landing one and being
+        # cut off on the first run.
+        "leader": {
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["fluoro", "mono", "wire"]},
+            "lb_test":       {"type": "number", "label": "Breaking strain", "unit": "lb", "min": 0, "max": 500},
+            "metres":        {"type": "number", "label": "Length", "unit": "m", "min": 0, "max": 50},
+        },
+        "lure": {
+            "technique":     {"type": "multi_enum", "label": "Technique", "options": TECHNIQUES},
+            "weight_g":      {"type": "number", "label": "Weight", "unit": "g", "min": 0, "max": 1000},
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["popper", "stickbait", "jig", "minnow",
+                                          "soft_plastic", "spoon"]},
+            "hook_size":     {"type": "string", "label": "Hook size"},
+        },
+        "terminal_tackle": {
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["hook", "split_ring", "swivel", "assist_hook", "sinker"]},
+            "rated_lb":      {"type": "number", "label": "Rated", "unit": "lb", "min": 0, "max": 500},
+            "size":          {"type": "string", "label": "Size"},
+        },
+        "tools": {
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["pliers", "cutters", "gaff", "gloves",
+                                          "scale", "release_tool", "knife"]},
+        },
+        "sun_protection": {
+            "kind":          {"type": "enum", "label": "Type",
+                              "options": ["hat", "buff", "sunglasses", "long_sleeve", "sunscreen"]},
+            "polarised":     {"type": "bool", "label": "Polarised"},
+            "upf":           {"type": "int", "label": "UPF", "min": 0, "max": 100},
+        },
     },
     "adventure": {
-        "water_type":     {"type": "enum", "label": "Water", "required": True,
-                           "options": ["shore", "inshore", "offshore", "boat"]},
-        "technique":      {"type": "multi_enum", "label": "Technique",
-                           "options": ["jigging", "popping", "casting", "trolling", "bottom"]},
+        # TRIP TYPE, not "water type". A camp-based shore expedition and a
+        # liveaboard are different trips with different kit, and the old
+        # shore/inshore/offshore/boat enum conflated where you stand with how
+        # you got there.
+        "trip_type":      {"type": "enum", "label": "Trip", "required": True,
+                           "options": ["day", "liveaboard", "camp_shore"]},
+        "days":           {"type": "int", "label": "Days", "min": 1, "max": 60},
+        "technique":      {"type": "multi_enum", "label": "Technique", "options": TECHNIQUES},
         "target_species": {"type": "string_list", "label": "Target species"},
+        "water":          {"type": "enum", "label": "Water",
+                           "options": ["shore", "inshore", "offshore", "reef"]},
         "depth_m":        {"type": "number", "label": "Depth", "unit": "m", "min": 0, "max": 2000},
-        "boat_hours":     {"type": "number", "label": "Hours afloat", "unit": "h", "min": 0, "max": 300},
+        "boat_hours":     {"type": "number", "label": "Hours afloat", "unit": "h", "min": 0, "max": 500},
+        # REMOTENESS IS THE SAFETY DIMENSION. §24 says distinguish mandatory
+        # from recommended and display authoritative rules "where available" —
+        # for an expedition to an uninhabited island there is no organiser and
+        # no published list, so the REQUIRED lines come from this field and from
+        # `mandatory_kit` typed in by the person going.
+        "remote":         {"type": "bool", "label": "Remote / no quick evacuation"},
+        "mandatory_kit":  {"type": "string_list", "label": "Required kit"},
+        "trip_name":      {"type": "string", "label": "Trip"},
     },
 }
 
@@ -278,6 +374,26 @@ CATEGORY_USAGE = {
     "safety":       USAGE_SESSIONS,
     # consumed
     "nutrition":    USAGE_NONE,
+
+    # ── fishing (Phase 7) ───────────────────────────────────────────────────
+    # SESSIONS THROUGHOUT, and nothing new was needed. The natural unit here is
+    # the fishing day, not a continuous metric: a reel is serviced on an
+    # interval measured in trips and months, not in metres of line retrieved.
+    # `sessions` already counts days out, so the accumulator that exists is the
+    # right one — see the note above DEFAULT_USAGE.
+    "rod":             USAGE_SESSIONS,
+    "reel":            USAGE_SESSIONS,
+    # Braid genuinely degrades with use, and the count of days on it is what a
+    # person actually knows. Metres retrieved is not a number anyone has.
+    "line":            USAGE_SESSIONS,
+    "lure":            USAGE_SESSIONS,
+    "tools":           USAGE_SESSIONS,
+    "sun_protection":  USAGE_SESSIONS,
+    # Consumed and replaced, usually every trip. A leader tied on Tuesday and
+    # re-tied Wednesday has no history worth keeping, and asking for one would
+    # be the life-jacket-reading-0-km bug in a different discipline.
+    "leader":          USAGE_NONE,
+    "terminal_tackle": USAGE_NONE,
 }
 
 #: An unknown category records sessions. Sessions is the safe default because
@@ -308,6 +424,10 @@ def usage_for(category_key: str | None) -> str:
 SIZED_CATEGORIES = frozenset({
     "shoes", "socks", "apparel_top", "apparel_bottom", "jacket",
     "gloves", "headwear", "vest", "gaiters",
+    # Fishing: a rod has a LENGTH and a reel has a SIZE, both of which are their
+    # own typed fields — putting a generic size box beside them is the poles bug
+    # again. Only what a person actually wears is sized.
+    "sun_protection",
     # future activities, declared with their schemas
     "boots", "waders",
 })
@@ -337,7 +457,16 @@ for _schema in ACTIVITIES.values():
         if c in SIZED_CATEGORIES)
 
 #: The only one with a UI. Everything else is schema-only until Phase 7.
-BUILT = ("trail_running",)
+#: Which activities the app will actually offer. The adventures router refuses
+#: anything outside this set at the API boundary, and engines/pack.py dispatches
+#: its rule table on the same key.
+#:
+#: ADDING TO THIS SET IS WHAT MAKES A LATENT BUG REACHABLE. Until Phase 7 the
+#: pack engine ran the trail-running rules for every activity — harmless while
+#: nothing else could be created, and the reason a fishing expedition would have
+#: been told it was missing running shoes the moment fishing appeared here. The
+#: dispatch and this line changed in the same commit, deliberately.
+BUILT = ("trail_running", "fishing")
 
 
 def schema_for(activity_key: str) -> dict | None:

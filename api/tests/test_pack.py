@@ -37,7 +37,11 @@ def item(id_, name, category, **attrs):
 
 
 def adventure(**attrs):
-    return {"id": "a", "attributes": attrs}
+    # activity_key is REQUIRED since Phase 7. The pack engine dispatches its
+    # rule table on it and contributes nothing for an activity it does not know,
+    # which is deliberate — falling back to trail running is the bug that told a
+    # fishing expedition it was missing running shoes.
+    return {"id": "a", "activity_key": "trail_running", "attributes": attrs}
 
 
 DAY = [{"forecast_date": "2027-02-04", "temp_min": 9, "temp_max": 26,

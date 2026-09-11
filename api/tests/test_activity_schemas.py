@@ -53,11 +53,24 @@ def test_schema_has_required_sections(activity):
     assert isinstance(schema.get("adventure"), dict) and schema["adventure"]
 
 
-def test_only_trail_running_is_built():
-    """A built activity has screens behind it. Three of these do not, and the
-    app must not offer them — an option that leads nowhere is worse than no
-    option. Guards against someone flipping a flag to 'try it out'."""
-    assert BUILT == ("trail_running",)
+def test_the_built_set_is_exactly_what_has_screens():
+    """A built activity has screens behind it. Two of these do not, and the app
+    must not offer them — an option that leads nowhere is worse than no option.
+    Guards against someone flipping a flag to 'try it out'."""
+    assert BUILT == ("trail_running", "fishing")
+    assert "hiking" not in BUILT and "fly_fishing" not in BUILT
+
+
+def test_every_built_activity_has_a_packing_rule_table():
+    """THE INVARIANT THAT WOULD HAVE CAUGHT PHASE 7'S BUG. Before the activity
+    dispatch existed, pack.generate() ran the trail-running rules for whatever
+    it was given — so marking fishing built would have told an expedition to an
+    uninhabited island that it was missing running shoes. Adding a key to BUILT
+    without a rule table is now a failing test rather than a surprise on a
+    screen."""
+    from api.engines.pack import ACTIVITY_RULES
+    for key in BUILT:
+        assert key in ACTIVITY_RULES, f"{key} is built but has no packing rules"
 
 
 def test_every_field_declares_a_known_type():
@@ -98,8 +111,13 @@ REPRESENTATIVE_GEAR = {
                                 "cushioning": "max",
                                 "terrain": ["technical", "mountain"]}),
     "hiking":        ("pack", {"capacity_l": 45, "frame": "internal"}),
-    "fishing":       ("reel", {"size": "14000", "drag_kg": 25.0,
-                               "gear_ratio": "5.7:1"}),
+    # A real GT popping reel rather than a plausible-looking one. The specs
+    # here are USER-SUPPLIED and unverified (§0.5) — they came from the owner,
+    # not from a catalogue and not from the brief, which does not contain them.
+    "fishing":       ("reel", {"size": "18000", "size_class": "extra_heavy",
+                               "drag_kg": 25.0, "gear_ratio": "5.7:1",
+                               "pe_capacity": 8.0, "sealed": True,
+                               "technique": ["popping", "jigging"]}),
     "fly_fishing":   ("fly_rod", {"length_ft": 9.0, "line_weight": 8,
                                   "pieces": 4, "action": "fast"}),
 }
@@ -110,8 +128,11 @@ REPRESENTATIVE_ADVENTURE = {
                       "terrain": ["mountain", "technical"],
                       "mandatory_kit": ["Headlamp", "Space blanket", "Whistle"]},
     "hiking":        {"distance_km": 82, "days": 5, "shelter_type": "tent"},
-    "fishing":       {"water_type": "offshore", "technique": ["popping", "jigging"],
-                      "target_species": ["GT", "Dogtooth tuna"]},
+    # Abd al Kuri — a real trip, used here the way Oman 100M is used above.
+    "fishing":       {"trip_type": "camp_shore", "days": 8, "remote": True,
+                      "water": "reef", "technique": ["popping", "jigging"],
+                      "target_species": ["Giant trevally", "Dogtooth tuna"],
+                      "trip_name": "Abd al Kuri"},
     "fly_fishing":   {"water": "saltwater", "approach": "wading",
                       "rod_weight": 9},
 }
@@ -135,7 +156,8 @@ def test_adventure_attributes_validate_for_every_activity(activity):
 @pytest.mark.parametrize("activity", ALL)
 def test_every_activity_declares_exactly_one_required_adventure_field(activity):
     """Each activity needs the one number its whole plan hangs off — distance
-    for the land activities, water type for the two fishing ones. More than one
+    for the land activities, trip type for fishing and water for fly fishing.
+    More than one
     required field makes the create form refuse a half-known plan, which is how
     most adventures start."""
     required = [k for k, spec in adventure_fields(activity).items()

@@ -131,7 +131,7 @@ def _num(value) -> float | None:
 # it fires, or None. A reason is required — a rule that cannot say why it fired
 # is a rule nobody can argue with, and §10 makes explainability the point.
 
-def _rules(attrs: dict, wx: dict) -> list[tuple]:
+def _rules_trail_running(attrs: dict, wx: dict) -> list[tuple]:
     hours = _num(attrs.get("expected_hours"))
     night = _num(attrs.get("night_hours"))
     gain = _num(attrs.get("elevation_gain_m"))
@@ -229,6 +229,112 @@ def _rules(attrs: dict, wx: dict) -> list[tuple]:
     return out
 
 
+# ── fishing (Phase 7) ───────────────────────────────────────────────────────
+#
+# THE SAME SHAPE AS THE TRAIL RULES — (key, category, classification, critical,
+# reason) — which is the part of the design that DID generalise. What did not
+# was the dispatch: before this phase `generate` called the trail table
+# unconditionally, so a fishing trip to an uninhabited island was told it was
+# missing running shoes. That was unreachable (the adventures router refuses an
+# unbuilt activity) right up until fishing became selectable, which is why the
+# dispatch and `built = true` land together.
+#
+# NO AUTHORITATIVE KIT LIST EXISTS FOR THIS DISCIPLINE. A race publishes its
+# mandatory equipment; an expedition to somewhere uninhabited does not. So §24's
+# REQUIRED lines come from `remote`, from the trip type, and from `mandatory_kit`
+# typed in by the person going — never from an assumed external source.
+
+#: Hours afloat beyond which a spare setup stops being luxury. A broken rod on
+#: day one of an eight-day trip with no tackle shop is the trip.
+SPARE_SETUP_HOURS = 24
+#: Days beyond which line and terminal tackle get consumed rather than carried.
+RESUPPLY_DAYS = 3
+
+
+def _rules_fishing(attrs: dict, wx: dict) -> list[tuple]:
+    days = _num(attrs.get("days"))
+    hours = _num(attrs.get("boat_hours"))
+    techniques = set(attrs.get("technique") or [])
+    trip = attrs.get("trip_type")
+    remote = attrs.get("remote") is True
+    water = attrs.get("water")
+
+    out: list[tuple] = []
+
+    def rule(key, category, classification, critical, reason):
+        out.append((key, category, classification, critical, reason))
+
+    # Always — you cannot fish without these three.
+    rule("rod_always", "rod", REQUIRED, False,
+         "You are fishing; the rod is the one thing with no substitute.")
+    rule("reel_always", "reel", REQUIRED, False,
+         "A rod without a reel is a stick.")
+    rule("line_always", "line", REQUIRED, True,
+         "Everything between you and the fish runs through it.")
+    rule("leader_always", "leader", REQUIRED, True,
+         "The leader is what touches the fish, and what coral cuts first.")
+
+    if techniques:
+        rule("lure_technique", "lure", REQUIRED, False,
+             f"{'/'.join(sorted(techniques))} — the lure is the technique.")
+        rule("terminal_technique", "terminal_tackle", REQUIRED, True,
+             "Hooks and split rings are the smallest part of the chain and the "
+             "part that straightens.")
+
+    # Sun is not a comfort item on open water. It is the exposure that ends
+    # days early, and §24 puts it beside the safety kit rather than below it.
+    rule("sun_always", "sun_protection", REQUIRED, False,
+         "Open water, all day, with the sea reflecting it back at you.")
+    rule("tools_always", "tools", REQUIRED, False,
+         "Pliers and cutters — for the fish's sake as much as yours.")
+
+    # Remoteness, which is this discipline's version of self-support.
+    if remote:
+        rule("first_aid_remote", "first_aid", REQUIRED, True,
+             "No quick evacuation from here — nobody else is carrying the "
+             "first aid kit.")
+        rule("safety_remote", "safety", REQUIRED, True,
+             "Remote water. A means of signalling is the difference between a "
+             "long wait and a search.")
+
+    if trip in ("liveaboard", "camp_shore"):
+        rule("storage_multiday", "accessories", RECOMMENDED, False,
+             "Multi-day — tackle needs somewhere dry to live between sessions.")
+
+    if days is not None and days >= RESUPPLY_DAYS:
+        rule("spare_line", "line", RECOMMENDED, False,
+             f"{days:g} days out with no tackle shop — braid gets cut.")
+
+    if hours is not None and hours >= SPARE_SETUP_HOURS:
+        rule("spare_rod", "rod", RECOMMENDED, False,
+             f"{hours:g} h afloat. A broken blank on day one is the whole trip "
+             f"unless there is a second.")
+
+    if water in ("offshore", "reef"):
+        rule("eyewear_glare", "sun_protection", RECOMMENDED, False,
+             "Polarised lenses are how you see structure and fish, not just "
+             "how you squint less.")
+
+    return out
+
+
+#: activity_key -> its rule table. The dispatch that did not exist before Phase 7.
+#:
+#: An activity with no entry contributes NO rules rather than falling back to
+#: trail running. Falling back is precisely the bug this replaces, and a pack
+#: with only the mandatory kit and the locker on it is a truthful answer for an
+#: activity nobody has written rules for yet.
+ACTIVITY_RULES = {
+    "trail_running": _rules_trail_running,
+    "fishing": _rules_fishing,
+}
+
+
+def _rules(adventure: dict, attrs: dict, wx: dict) -> list[tuple]:
+    table = ACTIVITY_RULES.get(adventure.get("activity_key") or "")
+    return table(attrs, wx) if table else []
+
+
 # ── the engine ──────────────────────────────────────────────────────────────
 
 def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
@@ -306,7 +412,7 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
     #: rather than as one MISSING line each — see the note where it is filled.
     suggested: list[tuple[str, str]] = []
 
-    for key, category, classification, critical, reason in _rules(attrs, wx):
+    for key, category, classification, critical, reason in _rules(adventure, attrs, wx):
         # A category the race already mandates is settled. A rule here may not
         # add a second line for it and certainly may not downgrade it.
         if category in mandated_categories:
@@ -399,6 +505,19 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
             detail={"categories": [c for c, _ in suggested],
                     "reasons": {c: r for c, r in suggested}}))
 
+    # AN ACTIVITY WITH NO RULES SAYS SO. Without this the pack is simply short,
+    # and short looks identical to "the rules decided you need very little" —
+    # which is the most reassuring possible way to be wrong.
+    if (adventure.get("activity_key") or "") not in ACTIVITY_RULES:
+        warnings.append(PackWarning(
+            key="no_rules", severity="note",
+            message=f"No packing rules exist for "
+                    f"{adventure.get('activity_key') or 'this activity'} yet, so "
+                    f"this list is your mandatory kit and your locker — nothing "
+                    f"here was decided by a rule.",
+            rule_key="activity_dispatch",
+            detail={"activity_key": adventure.get("activity_key")}))
+
     if not weather:
         warnings.append(PackWarning(
             key="no_forecast", severity="note",
@@ -422,7 +541,8 @@ def generate(adventure: dict, locker: list[dict], weather: list[dict], *,
             "match_ruleset": matching.MATCH_RULESET,
             "weather": wx,
             "counts": counts,
-            "locker_size": len(active),
+            "activity": adventure.get("activity_key"),
+        "locker_size": len(active),
             "mandatory_items": len(kit),
             "unmatched_mandatory": unmatched,
         })
