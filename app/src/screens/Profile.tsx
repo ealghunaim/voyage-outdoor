@@ -9,7 +9,8 @@ import {
 } from '../components/ui';
 import { APP_VERSION } from '../config';
 import {
-  disableNotifications, enableNotifications, notificationsEnabled,
+  SyncResult, disableNotifications, enableNotifications, lastSync,
+  notificationsEnabled, permissionStatus,
 } from '../notify';
 import { S, T, useTheme } from '../theme';
 
@@ -117,8 +118,17 @@ function NotificationsCard() {
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>('');
+  const [last, setLast] = useState<SyncResult | null>(null);
 
-  React.useEffect(() => { notificationsEnabled().then(setOn); }, []);
+  // READ THE OS, not just our own preference. The two disagree the moment
+  // somebody denies the app in iOS Settings, and without this the card keeps
+  // saying "on" over a phone that will never ring.
+  React.useEffect(() => {
+    notificationsEnabled().then(setOn);
+    permissionStatus().then(setStatus);
+    lastSync().then(setLast);
+  }, []);
 
   const toggle = async (next: boolean) => {
     setBusy(true);
@@ -138,6 +148,9 @@ function NotificationsCard() {
         setOn(true);
         setNote('On — but the plan could not be fetched just now. It will '
                 + 'schedule next time you have signal.');
+      } else if (result.reason === 'error') {
+        setOn(true);
+        setNote(`On, but nothing could be scheduled: ${result.detail}`);
       } else {
         setOn(true);
         setNote(result.scheduled
@@ -145,6 +158,8 @@ function NotificationsCard() {
           : 'On. Nothing to remind you about yet — which usually means '
             + 'everything is packed.');
       }
+      setLast(await lastSync());
+      setStatus(await permissionStatus());
     } finally {
       setBusy(false);
     }
@@ -168,6 +183,18 @@ function NotificationsCard() {
         needs a scheduler on the server, the second needs a product catalog.
       </Muted>
       {!!note && <Text style={[T.caption, { color: P.textSec }]}>{note}</Text>}
+
+      {/* THE STATE, not the intention. A card that reports only its own switch
+          position cannot explain a phone that never rings — and "permission:
+          blocked in iOS Settings" is the answer to the only question somebody
+          in that situation is asking. */}
+      <Row label="iOS permission" value={status || '…'} />
+      {!!last && (
+        <Row label="Last check"
+             value={last.reason
+               ? `${last.reason}${last.detail ? ` — ${last.detail}` : ''}`
+               : `${last.scheduled} scheduled`} />
+      )}
     </Card>
   );
 }

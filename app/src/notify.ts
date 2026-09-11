@@ -55,7 +55,49 @@ export async function cancelAll(): Promise<void> {
   catch { /* nothing scheduled */ }
 }
 
-export type SyncResult = { scheduled: number; reason?: string };
+export type SyncResult = {
+  scheduled: number;
+  reason?: 'off' | 'denied' | 'offline' | 'error';
+  /** What actually went wrong, for the settings card to show.
+   *
+   *  ADDED AFTER A SILENT FAILURE. App.tsx called this on every foreground
+   *  wrapped in `.catch(() => {})`, so when nothing was ever scheduled there
+   *  was no way to find out why — not from the screen, not from the device log,
+   *  not from the stored preference, which cheerfully stayed "on". A feature
+   *  that cannot say why it is not working is a feature nobody can report a bug
+   *  about. */
+  detail?: string;
+};
+
+const LAST = 'vo.notify.last.v1';
+
+/** The last sync's outcome, so the settings card can explain a quiet phone. */
+export async function lastSync(): Promise<SyncResult | null> {
+  try {
+    const raw = await Storage.getItem(LAST);
+    return raw ? (JSON.parse(raw) as SyncResult) : null;
+  } catch { return null; }
+}
+
+async function remember(result: SyncResult): Promise<SyncResult> {
+  try { await Storage.setItem(LAST, JSON.stringify(result)); } catch { /* best effort */ }
+  return result;
+}
+
+/** What the OS currently thinks, independent of our own preference.
+ *
+ *  The two can disagree: someone turns reminders on here and later denies the
+ *  app in iOS Settings. The stored preference still says "on", and without this
+ *  the card would keep claiming reminders are coming. */
+export async function permissionStatus(): Promise<string> {
+  try {
+    const p = await Notifications.getPermissionsAsync();
+    if (p.granted) return 'granted';
+    return p.canAskAgain ? 'not asked yet' : 'blocked in iOS Settings';
+  } catch (e: any) {
+    return `unavailable (${e?.message ?? 'unknown'})`;
+  }
+}
 
 /**
  * Cancel everything and reschedule from the server's plan.
@@ -67,22 +109,36 @@ export type SyncResult = { scheduled: number; reason?: string };
  * can be subtly wrong.
  */
 export async function syncNotifications(): Promise<SyncResult> {
-  if (!(await notificationsEnabled())) return { scheduled: 0, reason: 'off' };
-  if (!(await requestPermission())) return { scheduled: 0, reason: 'denied' };
+  if (!(await notificationsEnabled())) return remember({ scheduled: 0, reason: 'off' });
+
+  // WRAPPED, because this is where it failed silently. `getPermissionsAsync`
+  // throwing — a module that did not link, a platform that has no notification
+  // centre — used to propagate into App.tsx's `.catch(() => {})` and vanish.
+  try {
+    if (!(await requestPermission())) {
+      return remember({ scheduled: 0, reason: 'denied',
+                        detail: await permissionStatus() });
+    }
+  } catch (e: any) {
+    return remember({ scheduled: 0, reason: 'error',
+                      detail: `permission check failed: ${e?.message ?? e}` });
+  }
 
   let plan: NotificationPlan;
   try {
     plan = await getNotificationPlan(localToday());
-  } catch {
+  } catch (e: any) {
     // NOTHING IS CANCELLED ON A FAILED FETCH. Losing signal must not silently
     // wipe reminders that were already scheduled — that is the exact moment
     // they matter most.
-    return { scheduled: 0, reason: 'offline' };
+    return remember({ scheduled: 0, reason: 'offline',
+                      detail: e?.message ?? 'could not reach the server' });
   }
 
   await cancelAll();
 
   let scheduled = 0;
+  let failed: string | null = null;
   for (const n of plan.notifications) {
     // Built in LOCAL time from the plan's date and hour, which is what makes a
     // reminder survive flying to the race — the server never sends a timestamp.
@@ -102,11 +158,16 @@ export async function syncNotifications(): Promise<SyncResult> {
                    date: when },
       });
       scheduled++;
-    } catch {
-      // One bad entry must not cost the rest of the plan.
+    } catch (e: any) {
+      // One bad entry must not cost the rest of the plan — but it is recorded,
+      // because "3 of 8 scheduled" is a different story from "8 of 8".
+      failed = failed || (e?.message ?? 'one entry could not be scheduled');
     }
   }
-  return { scheduled };
+  return remember({
+    scheduled,
+    ...(failed ? { reason: 'error' as const, detail: failed } : {}),
+  });
 }
 
 /** Turning it on: permission, then an immediate sync so the toggle does

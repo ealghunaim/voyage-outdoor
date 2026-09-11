@@ -198,8 +198,14 @@ export default function App() {
   useEffect(() => {
     if (!authed) return;
     const run = () => {
-      flush().catch(() => {});
-      syncNotifications().catch(() => {});
+      // NOT `.catch(() => {})` any more. Swallowing here is what made a broken
+      // notification sync invisible: nothing scheduled, nothing logged, and a
+      // stored preference still cheerfully reading "on". Both of these record
+      // their own outcome now — the queue in its pending count, the sync in
+      // vo.notify.last.v1 — and the Profile card reads it back.
+      flush().catch(e => console.warn('[queue] flush failed', e?.message ?? e));
+      syncNotifications().catch(e =>
+        console.warn('[notify] sync failed', e?.message ?? e));
     };
     run();
     const sub = AppState.addEventListener('change', s => {
