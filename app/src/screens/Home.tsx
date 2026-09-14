@@ -62,13 +62,37 @@ export default function Home({ onOpenGear, onAddGear, onGearTab,
 
   const recent = items.slice(0, 4);
 
+  /** What the locker and the calendar are actually about.
+   *
+   *  THIS LINE SAID "Trail running" FOR EVERY ACCOUNT. Harmless while trail
+   *  running was the only built activity, and wrong the moment a rod went into
+   *  the locker — the home screen announced one discipline over a list whose
+   *  four most recent items were a jig, a popper and two leaders. Found by
+   *  looking at the running app; the eighth hardcoded activity in the app and
+   *  the only one the type checker could never have caught, because the string
+   *  was a string.
+   *
+   *  Read from the data rather than from a preference: the answer is already in
+   *  the locker and the adventures, and a stored setting is one more thing that
+   *  can disagree with what is on screen. */
+  const activities = useMemo(() => {
+    const keys = new Set<string>();
+    for (const g of items) if (g.activity_key) keys.add(g.activity_key);
+    for (const a of adventures.data ?? []) if (a.activity_key) keys.add(a.activity_key);
+    return [...keys].sort();
+  }, [items, adventures.data]);
+
   if (gear.loading) return <Loading />;
 
   return (
     <Screen>
       <View style={{ paddingTop: S[2], gap: S[1] }}>
         <Text style={[T.display, { color: P.textPri }]}>{greeting()}</Text>
-        <Muted>Trail running · Voyage Outdoor</Muted>
+        <Muted>
+          {activities.length
+            ? `${activities.map(titleCase).join(' · ')} · Voyage Outdoor`
+            : 'Voyage Outdoor'}
+        </Muted>
       </View>
 
       {gear.stale && <Banner text="Saved copy — reconnecting." />}

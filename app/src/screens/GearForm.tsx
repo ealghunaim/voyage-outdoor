@@ -2,15 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 
 import {
-  ActivitySchema, GearCategory, createGear, getActivitySchema,
-  getGear, listCategories, updateGear,
+  Activity, ActivitySchema, GearCategory, createGear, getActivitySchema,
+  getGear, listActivities, listCategories, updateGear,
 } from '../api';
 import { AttributeFields, AttrValues } from '../components/AttributeFields';
 import { Banner, Btn, Card, Chip, Field, H, Label, Loading, Muted, Screen, Toggle } from '../components/ui';
 import { dropCache } from '../cache';
 import { S } from '../theme';
 
-const ACTIVITY = 'trail_running';   // the only built activity in V1
+//: What a NEW item defaults to. Phase 7 made this a default rather than a
+//: constant; the picker below changes it.
+const DEFAULT_ACTIVITY = 'trail_running';
 
 /**
  * Add or edit one piece of gear.
@@ -33,6 +35,8 @@ export default function GearForm({ gearId, onDone, onCancel }: {
 
   const [schema, setSchema] = useState<ActivitySchema | null>(null);
   const [categories, setCategories] = useState<GearCategory[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activity, setActivity] = useState<string>(DEFAULT_ACTIVITY);
 
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
@@ -48,16 +52,30 @@ export default function GearForm({ gearId, onDone, onCancel }: {
     let alive = true;
     (async () => {
       try {
+        const list = await listActivities();
+        if (!alive) return;
+        setActivities(list);
+
+        // The item's OWN activity when editing, so the field set matches the
+        // values. Loading the trail-running schema for a reel would render an
+        // empty specs section and then quietly drop every attribute on save.
+        let key = DEFAULT_ACTIVITY;
+        let existing = null;
+        if (gearId) {
+          existing = await getGear(gearId);
+          if (!alive) return;
+          key = existing.activity_key || DEFAULT_ACTIVITY;
+        }
+        setActivity(key);
         const [s, c] = await Promise.all([
-          getActivitySchema(ACTIVITY),
-          listCategories(ACTIVITY),
+          getActivitySchema(key),
+          listCategories(key),
         ]);
         if (!alive) return;
         setSchema(s);
         setCategories(c);
-        if (gearId) {
-          const item = await getGear(gearId);
-          if (!alive) return;
+        if (existing) {
+          const item = existing;
           setName(item.name);
           setBrand(item.brand ?? '');
           setModel(item.model ?? '');
@@ -94,6 +112,26 @@ export default function GearForm({ gearId, onDone, onCancel }: {
   // shown — it is the only place to put a size for an uncategorised item.
   const sized = !categoryKey || (schema?.sized ?? []).includes(categoryKey);
 
+  /** A different activity is a different set of categories AND a different set
+   *  of fields, so both the chosen category and everything recorded under it
+   *  are cleared. Keeping a `lug_depth_mm` on something that just became a reel
+   *  is a value no form can show and no engine should read. */
+  const changeActivity = async (key: string) => {
+    if (key === activity) return;
+    setActivity(key);
+    setCategoryKey(null);
+    setAttributes({});
+    setSize('');
+    setError(null);
+    try {
+      const [s, c] = await Promise.all([getActivitySchema(key), listCategories(key)]);
+      setSchema(s);
+      setCategories(c);
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not load that activity.');
+    }
+  };
+
   const changeCategory = (key: string) => {
     const next = categoryKey === key ? null : key;
     setCategoryKey(next);
@@ -120,7 +158,7 @@ export default function GearForm({ gearId, onDone, onCancel }: {
         brand: brand.trim() || null,
         model: model.trim() || null,
         category_key: categoryKey,
-        activity_key: ACTIVITY,
+        activity_key: activity,
         size: size.trim() || null,
         weight_g: Number.isFinite(parsedWeight as number) ? parsedWeight : null,
         notes: notes.trim() || null,
@@ -165,6 +203,22 @@ export default function GearForm({ gearId, onDone, onCancel }: {
           </View>
         </View>
       </Card>
+
+      {/* CREATE ONLY, for the same reason as the adventure form: switching
+          activity means a different field set, and an item's recorded specs
+          belong to the set they were entered under. */}
+      {!editing && activities.length > 1 && (
+        <Card style={{ gap: S[3] }}>
+          <Label>Activity</Label>
+          <Muted>Which kit this belongs to. It decides the categories below.</Muted>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S[2] }}>
+            {activities.map(a => (
+              <Chip key={a.key} label={a.name} selected={activity === a.key}
+                    onPress={() => changeActivity(a.key)} />
+            ))}
+          </View>
+        </Card>
+      )}
 
       <Card style={{ gap: S[3] }}>
         <Label>Category</Label>

@@ -1,22 +1,39 @@
 import React, { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 
-import { Me, getMe, patchPreferences } from '../api';
+import {
+  Activity, Me, getHealth, getMe, listActivities, patchPreferences,
+} from '../api';
 import { getEmail, signOut } from '../auth';
 import { useCached } from '../cache';
 import {
   Banner, Btn, Card, Chip, H, Label, Loading, Muted, Row, Screen, Toggle,
 } from '../components/ui';
-import { APP_VERSION } from '../config';
+import { API_URL, APP_VERSION } from '../config';
 import {
   SyncResult, disableNotifications, enableNotifications, lastSync,
   notificationsEnabled, permissionStatus,
 } from '../notify';
 import { S, T, useTheme } from '../theme';
 
+/** The API's host, for the About card. Strips the scheme and any path so a
+ *  long Render URL does not wrap, and leaves the port on, because
+ *  "localhost:8000" and "localhost:8081" are a distinction worth seeing. */
+function apiHost(): string {
+  if (!API_URL) return 'not configured';
+  return API_URL.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+}
+
 export default function Profile({ onSignedOut }: { onSignedOut: () => void }) {
   const { P, mode } = useTheme();
   const me = useCached<Me>('me', getMe);
+  // BOTH OF THESE WERE LITERALS in the About card: Phase "6 — Polish" and
+  // Activity "Trail running". Each was correct when it was typed and wrong by
+  // the next commit. Asked for instead, and rendered as a dash when the answer
+  // has not arrived — an em dash is honest about not knowing; a stale string
+  // is not.
+  const health = useCached('health', getHealth);
+  const activities = useCached<Activity[]>('activities.built', listActivities);
   const [busy, setBusy] = useState(false);
 
   const prefs = me.data?.preferences;
@@ -90,8 +107,28 @@ export default function Profile({ onSignedOut }: { onSignedOut: () => void }) {
       <Card style={{ gap: S[1] }}>
         <Label>About</Label>
         <Row label="Version" value={APP_VERSION || '—'} />
-        <Row label="Phase" value="6 — Polish" />
-        <Row label="Activity" value="Trail running" />
+        <Row label="Phase"
+             value={health.data ? String(health.data.phase) : '—'} />
+        <Row label="API" value={health.data?.version ?? '—'} />
+        {/* WHICH SERVER, SAID OUT LOUD.
+         *
+         *  config.ts falls back from EXPO_PUBLIC_API_URL to app.json silently,
+         *  which is correct for a release build and a trap in development: a
+         *  dev client restarted without the variable points at production and
+         *  looks identical to one pointing at a laptop. That happened during
+         *  this phase — a locker went from nineteen items to nine between two
+         *  screenshots and the first conclusion was that the data had been
+         *  deleted. Nothing had; the app had quietly changed servers.
+         *
+         *  Host only. The full URL adds nothing here and the app key must
+         *  never be on a screen. */}
+        <Row label="Server" value={apiHost()} />
+        {/* Plural, because it is. The server decides which activities are
+            built; this screen only reports what it was told. */}
+        <Row label="Activities"
+             value={activities.data?.length
+               ? activities.data.map(a => a.name).join(', ')
+               : '—'} />
       </Card>
 
       <Btn kind="quiet" label="Sign out" tone={P.danger} onPress={confirmSignOut} />

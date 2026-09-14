@@ -279,3 +279,180 @@ def test_retired_gear_never_enters_a_setup():
     retired = {**STELLA, "status": "retired"}
     setups = tackle.build_setups([POP_ROD, retired])
     assert "reel" not in setups[0]
+
+# ── pairing by fit, which a green suite did not catch ───────────────────────
+#
+# THE BUG THESE EXIST FOR. build_setups filtered candidates on `technique` and
+# then sorted by id. Lines and leaders carry no technique field — the registry
+# gives them kind/pe/lb_test/metres — so the filter matched nothing, every role
+# fell through to the id sort, and every rod got the SAME line and the SAME
+# leader. Against a real locker that handed a PE6-10 popping rod a PE5 braid
+# while the PE8 braid sat in the same locker, then reported the pairing it had
+# invented as a problem with the person's tackle.
+#
+# The suite was green throughout. The one pairing test that existed asserted on
+# LURES, which do carry technique, so it passed for the wrong reason and proved
+# nothing about the three roles that were broken.
+#
+# WHY THE IDS BELOW LOOK BACKWARDS. `_tie_break` ends in `str(id)`, so a fixture
+# whose correct answer also happens to sort first passes on the broken engine
+# too. Written the obvious way, eight of these ten tests did exactly that. Every
+# id here is therefore chosen so ALPHABETICAL ORDER IS THE WRONG ANSWER: the
+# only way to pass is to have actually scored the fit.
+
+# PE8 sorts last, PE2 first — the reverse of what a PE6-10 rod wants.
+F_PE8 = gear("z-line-pe8", "PE8 braid", "line", kind="braid", pe=8.0,
+             lb_test=100.0)
+F_PE5 = gear("m-line-pe5", "PE5 braid", "line", kind="braid", pe=5.0,
+             lb_test=65.0)
+F_PE2 = gear("a-line-pe2", "PE2 braid", "line", kind="braid", pe=2.0,
+             lb_test=30.0)
+# The correct heavy leader sorts after the wrong light one.
+F_LEADER_130 = gear("z-lead-130", "130 lb fluoro", "leader", kind="fluoro",
+                    lb_test=130.0)
+F_LEADER_40 = gear("a-lead-40", "40 lb fluoro", "leader", kind="fluoro",
+                   lb_test=40.0)
+# The reel that fits sorts after the one that does not.
+F_BIG_REEL = gear("z-reel-18000", "Stella 18000HG", "reel", size="18000",
+                  size_class="extra_heavy", drag_kg=25.0, pe_capacity=8.0,
+                  technique=["popping", "jigging"])
+F_SMALL_REEL = gear("a-reel-4000", "4000 spinning", "reel", size="4000",
+                    size_class="light", drag_kg=8.0, pe_capacity=2.0,
+                    technique=["popping", "jigging"])
+
+
+def test_each_rod_gets_the_line_inside_its_own_pe_window():
+    """The regression, stated as the thing a person would notice: a correct rig
+    being called wrong."""
+    locker = [POP_ROD, JIG_ROD, F_BIG_REEL, F_PE8, F_PE5, F_LEADER_130, POPPER]
+    setups = {s["rod"]["id"]: s for s in tackle.build_setups(locker)}
+    assert setups["rod1"]["line"]["id"] == "z-line-pe8"   # PE8 to the PE6-10 rod
+    assert setups["rod2"]["line"]["id"] == "m-line-pe5"   # PE5 to the PE4-6 rod
+
+
+def test_a_correctly_equipped_rod_reports_no_problems():
+    """Pairing and judging together. Each half was right on its own; the bug
+    lived in the seam, which is why no unit test saw it."""
+    locker = [POP_ROD, JIG_ROD, F_BIG_REEL, F_PE8, F_PE5, F_LEADER_130, POPPER]
+    setups = {s["rod"]["id"]: s for s in tackle.build_setups(locker)}
+    problems = [v.message for v in tackle.evaluate_setup(setups["rod1"])
+                if v.is_problem]
+    assert problems == []
+
+
+def test_the_leader_is_chosen_against_the_line_that_was_chosen():
+    """Leader fit depends on the main line, so line must resolve first. With
+    the order reversed this picks by id and the dependency is invisible."""
+    locker = [JIG_ROD, F_PE5, F_PE8, F_LEADER_130, F_LEADER_40]
+    setup = tackle.build_setups(locker)[0]
+    assert setup["line"]["id"] == "m-line-pe5"            # matching PE4-6
+    # 65 lb main: the 130 lb leader is 2.0x and the 40 lb is 0.6x. Only one of
+    # them is above the main line at all.
+    assert setup["leader"]["id"] == "z-lead-130"
+
+
+def test_a_reel_is_chosen_for_the_line_class_the_rod_is_built_around():
+    locker = [POP_ROD, F_BIG_REEL, F_SMALL_REEL, F_PE8]
+    setup = tackle.build_setups(locker)[0]
+    assert setup["reel"]["id"] == "z-reel-18000"          # PE8 capacity, not PE2
+
+
+def test_nothing_suitable_still_gets_paired_and_still_gets_judged():
+    """A picker that only ever chose a good fit would answer 'no problems' for
+    a locker that cannot equip the rod at all. 'You own no line this rod can
+    use' is the useful answer; silence is the dangerous one."""
+    locker = [POP_ROD, F_SMALL_REEL, F_PE2, F_LEADER_40]
+    setup = tackle.build_setups(locker)[0]
+    assert setup["line"]["id"] == "a-line-pe2"            # paired despite the misfit
+    problems = {v.rule_key for v in tackle.evaluate_setup(setup) if v.is_problem}
+    assert "rod_line_pe" in problems
+
+
+def test_a_line_with_no_pe_recorded_is_still_eligible():
+    """Unknown is a state the rules report, not a reason to drop a candidate.
+    Skipping it here would substitute a different line silently and answer a
+    question about gear the person did not pair."""
+    blank = gear("z-line-blank", "Unlabelled braid", "line", kind="braid")
+    setup = tackle.build_setups([POP_ROD, blank])[0]
+    assert setup["line"]["id"] == "z-line-blank"
+    assert states(tackle.evaluate_setup(setup))["rod_line_pe"] == UNKNOWN
+
+
+def test_a_recorded_fit_beats_a_blank_one():
+    """The blank sorts FIRST here, so id order argues for it and fit argues
+    against — which is the only arrangement that tests anything."""
+    blank = gear("a-line-blank", "Unlabelled braid", "line", kind="braid")
+    setup = tackle.build_setups([POP_ROD, blank, F_PE8])[0]
+    assert setup["line"]["id"] == "z-line-pe8"
+
+
+def test_a_near_miss_is_preferred_to_a_wild_one():
+    """When nothing fits, the verdict should name the closest thing the locker
+    actually holds. PE5 is one step under a PE6-10 rod; PE2 is four."""
+    setup = tackle.build_setups([POP_ROD, F_PE2, F_PE5])[0]
+    assert setup["line"]["id"] == "m-line-pe5"
+
+
+def test_pairing_is_stable_across_two_identical_calls():
+    """A setup that changed between two screens with nothing having changed is
+    worse than one that is merely arbitrary."""
+    locker = [POP_ROD, JIG_ROD, F_BIG_REEL, F_SMALL_REEL, F_PE8, F_PE5, F_PE2,
+              F_LEADER_130, F_LEADER_40, POPPER]
+    first = tackle.build_setups(locker)
+    second = tackle.build_setups(list(reversed(locker)))
+    assert [{r: s[r]["id"] for r in s} for s in first] \
+        == [{r: s[r]["id"] for r in s} for s in second]
+
+
+def test_technique_still_wins_where_it_is_recorded():
+    """The fix must not trade one bug for another: a jigging rod should not be
+    handed the popping reel because its PE capacity scored a hair better. The
+    popping reel sorts first AND has the better raw fit, so technique is the
+    only thing that can produce the right answer."""
+    jig_reel = gear("z-reel-jig", "Jigging reel 8000", "reel", size="8000",
+                    size_class="medium", drag_kg=10.0, pe_capacity=6.0,
+                    technique=["jigging"])
+    pop_only = gear("a-reel-pop", "Popping reel 14000", "reel", size="14000",
+                    size_class="heavy", drag_kg=20.0, pe_capacity=5.0,
+                    technique=["popping"])
+    setup = tackle.build_setups([JIG_ROD, jig_reel, pop_only, F_PE5])[0]
+    assert setup["reel"]["id"] == "z-reel-jig"
+
+
+# ── a pair that is backwards while every field in it is legal ───────────────
+#
+# Found by throwing malformed bodies at the live endpoint, not by the suite.
+# pe_min 10 with pe_max 2 passed every check the validator had — both numbers
+# sit inside the registry's 0.4-20 — and then made this rule answer, for ANY
+# line, "heavier than this rod is rated for (to PE2)". One transposed pair of
+# digits turned into confident advice.
+
+def test_a_backwards_pe_rating_is_reported_as_a_typo_not_a_mismatch():
+    broken = gear("rodx", "Rod with a transposed rating", "rod",
+                  technique=["popping"], pe_min=10.0, pe_max=2.0)
+    v = tackle.rod_line_pe({"rod": broken, "line": PE8})
+    assert v.state == UNKNOWN
+    assert "backwards" in v.message
+    assert v.detail["inverted"] is True
+
+
+def test_a_backwards_casting_range_is_reported_the_same_way():
+    broken = gear("rody", "Rod with a transposed window", "rod",
+                  technique=["popping"], cast_weight_min_g=150.0,
+                  cast_weight_max_g=60.0)
+    v = tackle.lure_vs_rod({"rod": broken, "lure": POPPER})
+    assert v.state == UNKNOWN
+    assert "backwards" in v.message
+
+
+def test_a_backwards_window_is_never_reported_as_a_problem():
+    """UNKNOWN, not NOT_RECOMMENDED. 'Your line is wrong' and 'your rod's
+    rating is typed wrong' send a person to two different places, and only one
+    of them is the truth."""
+    broken = gear("rodz", "Rod with a transposed rating", "rod",
+                  technique=["popping"], pe_min=10.0, pe_max=2.0,
+                  cast_weight_min_g=150.0, cast_weight_max_g=60.0)
+    verdicts = tackle.evaluate_setup(
+        {"rod": broken, "line": PE8, "lure": POPPER})
+    assert not any(v.is_problem for v in verdicts), \
+        [v.message for v in verdicts if v.is_problem]

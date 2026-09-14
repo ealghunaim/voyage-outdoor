@@ -20,8 +20,17 @@ export default function GearDetail({ gearId, onEdit, onGone }: {
 }) {
   const { P } = useTheme();
   const item = useCached<GearDetailT>(`gear.${gearId}`, () => getGear(gearId));
-  const schema = useCached<ActivitySchema>('schema.trail_running',
-    () => getActivitySchema('trail_running'));
+  // THE ITEM'S OWN ACTIVITY, not a constant. A rod and a running shoe have
+  // different field sets, different usage kinds and different sizing, and
+  // asking the trail-running schema about a reel returns nothing at all — the
+  // specs card would simply be empty, which reads as "no specs recorded".
+  //
+  // Null until the item loads: useCached treats a null key as "not ready" and
+  // fetches nothing, rather than fetching the wrong schema and replacing it.
+  const item0 = item.data;
+  const schema = useCached<ActivitySchema>(
+    item0?.activity_key ? `schema.${item0.activity_key}` : null,
+    () => getActivitySchema(item0!.activity_key!));
 
   const [logging, setLogging] = useState(false);
   const [logDistance, setLogDistance] = useState('');

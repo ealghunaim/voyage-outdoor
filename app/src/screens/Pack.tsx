@@ -3,8 +3,9 @@ import { Alert, Pressable, Text, View } from 'react-native';
 
 import {
   Classification, Narrative as NarrativeT, Pack as PackT, PackItem, PackState,
-  PackWarningRow, RaceKitDraft, generatePack, getKitProvenance, getNarrative,
-  getPack, setPackItemState, writeNarrative,
+  PackWarningRow, RaceKitDraft, TackleReport, generatePack,
+  getAdventureTackle, getKitProvenance, getNarrative, getPack,
+  setPackItemState, writeNarrative,
 } from '../api';
 import { useCached } from '../cache';
 import { Pending, enqueue, flush, overlay, pendingFor } from '../queue';
@@ -196,6 +197,8 @@ export default function Pack({ adventureId, title, onAsk, onBack }: {
 
       <Readiness readiness={r} />
 
+      <Tackle adventureId={adventureId} />
+
       <KitProvenance adventureId={adventureId}
                      hasRaceKit={data.items.some(i => i.source === 'mandatory')} />
 
@@ -329,6 +332,90 @@ function Narrative({ adventureId }: { adventureId: string }) {
       {!!error && <Muted>{error}</Muted>}
       <Btn kind="quiet" label={n.stale ? 'Write it again' : 'Refresh'}
            onPress={write} busy={busy} />
+    </Card>
+  );
+}
+
+/**
+ * Does your tackle agree with itself? (§11, Phase 7)
+ *
+ * THE SECOND RULE SHAPE, on screen. Everything else on this page is one item
+ * judged against the trip. These verdicts are about PAIRS — the reel and the
+ * line, the line and the leader — which is the question that breaks tackle and
+ * which a running race never has to ask.
+ *
+ * Renders nothing at all for a non-fishing adventure: the endpoint answers 409,
+ * and a card saying "no tackle problems" over a trail race would be answering a
+ * question nobody asked.
+ */
+function Tackle({ adventureId }: { adventureId: string }) {
+  const { P } = useTheme();
+  const [report, setReport] = useState<TackleReport | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    getAdventureTackle(adventureId)
+      .then(r => { if (alive) setReport(r); })
+      .catch(() => { /* 409 = not a fishing trip. Offline = nothing to add. */ });
+    return () => { alive = false; };
+  }, [adventureId]);
+
+  if (!report || !report.setups.length) return null;
+
+  return (
+    <Card style={{ gap: S[4] }}>
+      <View style={{ gap: S[1] }}>
+        <Label>Tackle</Label>
+        <Muted>
+          Whether the parts work together — rod against line, reel against line,
+          leader against main. Standard practice, assumed rather than measured.
+        </Muted>
+      </View>
+
+      {report.setups.map((setup, i) => {
+        const parts = Object.entries(setup.parts)
+          .filter(([role]) => role !== 'rod')
+          .map(([role, item]) => item?.name)
+          .filter(Boolean);
+        return (
+          <View key={setup.rod?.id ?? i} style={{ gap: S[2] }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center',
+                           gap: S[2], flexWrap: 'wrap' }}>
+              <Text style={[T.title, { color: P.textPri }]}>
+                {setup.rod?.name ?? 'Setup'}
+              </Text>
+              {setup.problems > 0 && (
+                <View style={{ paddingHorizontal: S[2], paddingVertical: 1,
+                               borderRadius: RA.pill,
+                               backgroundColor: tint(P.critical, 0.16) }}>
+                  <Text style={[T.label, { color: P.critical }]}>
+                    {setup.problems} PROBLEM{setup.problems === 1 ? '' : 'S'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {parts.length > 0 && <Muted>with {parts.join(' · ')}</Muted>}
+            {setup.verdicts.map(v => (
+              <View key={v.rule_key}
+                    style={{ flexDirection: 'row', gap: S[3] }}>
+                <View style={{ width: 3, borderRadius: 2,
+                               backgroundColor:
+                                 v.state === 'not_recommended' ? P.critical
+                                 : v.state === 'possibly_compatible' ? P.warningInk
+                                 : v.state === 'unknown' ? P.textMuted
+                                 : P.success }} />
+                <Text style={[T.caption, { color: P.textSec, flex: 1 }]}>
+                  {v.message}
+                </Text>
+              </View>
+            ))}
+          </View>
+        );
+      })}
+
+      {/* §0.5, said where somebody can act on it. These are standard tackle
+          practice, not measurements from this gear. */}
+      <Muted>{report.note}</Muted>
     </Card>
   );
 }

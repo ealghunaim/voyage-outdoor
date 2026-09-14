@@ -11,7 +11,7 @@ import { describeAttributes } from '../components/AttributeFields';
 import {
   Banner, Btn, Card, H, Label, Loading, Muted, Pill, Row, Screen,
 } from '../components/ui';
-import { day } from '../format';
+import { day, titleCase } from '../format';
 import { S, T, tint, useTheme } from '../theme';
 
 /** What this status may become, mirroring api/adventures/router.py.
@@ -46,8 +46,13 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
   const { P } = useTheme();
   const a = useCached<AdventureT>(`adventure.${adventureId}`,
     () => getAdventure(adventureId));
-  const schema = useCached<ActivitySchema>('schema.trail_running',
-    () => getActivitySchema('trail_running'));
+  // The adventure's own activity. A fishing trip's fields are trip type, days,
+  // technique and target species; asking the trail-running schema about them
+  // returns an empty spec list, which looks like a trip nobody filled in.
+  const adv0 = a.data;
+  const schema = useCached<ActivitySchema>(
+    adv0?.activity_key ? `schema.${adv0.activity_key}` : null,
+    () => getActivitySchema(adv0!.activity_key));
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +145,7 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
   // Read straight off the attributes rather than from a derived spec row: this
   // is a list, and describeAttributes renders it as one joined string.
   const kit: string[] = (adv.attributes?.mandatory_kit as string[]) ?? [];
+  const fishing = adv.activity_key === 'fishing';
 
   return (
     <Screen>
@@ -152,7 +158,7 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
           <Pill label={adv.status}
                 tone={adv.status === 'active' ? P.success : P.brand}
                 filled={adv.status === 'active'} />
-          <Pill label="Trail running" />
+          <Pill label={titleCase(adv.activity_key)} />
         </View>
         <Text style={[T.body, { color: P.textSec }]}>
           {oneDay ? day(adv.start_date) : `${day(adv.start_date)} – ${day(adv.end_date)}`}
@@ -162,7 +168,7 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
 
       {specs.length > 0 && (
         <Card style={{ gap: S[1] }}>
-          <Label>The run</Label>
+          <Label>{fishing ? "The trip" : "The run"}</Label>
           {specs.map(s => <Row key={s.label} label={s.label} value={s.value} />)}
         </Card>
       )}
@@ -193,9 +199,17 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
         <Label>Mandatory kit</Label>
         {kit.length === 0 ? (
           <Muted>
-            Nothing recorded. If this is a race with a kit list, read it in from
-            the race's own page — those items outrank every other rule, and the
-            pack marks each one critical.
+            {fishing
+              // §24 says display authoritative rules "where available". For an
+              // expedition to somewhere uninhabited there is no organiser and
+              // no published list, so saying "import it from the race page"
+              // would be offering a door that does not exist.
+              ? 'Nothing recorded. There is no organiser publishing a list for '
+                + 'this kind of trip — anything you add here is treated as '
+                + 'non-negotiable and marked critical on the pack.'
+              : "Nothing recorded. If this is a race with a kit list, read it in "
+                + "from the race's own page — those items outrank every other "
+                + 'rule, and the pack marks each one critical.'}
           </Muted>
         ) : (
           <View style={{ gap: S[1] }}>
@@ -205,9 +219,16 @@ export default function AdventureDetail({ adventureId, onEdit, onPack,
             {kit.length > 6 && <Muted>+{kit.length - 6} more</Muted>}
           </View>
         )}
-        <Btn kind="ghost"
-             label={kit.length ? 'Re-read the race page' : 'Import from the race page'}
-             onPress={() => onImportKit(adv.title)} />
+        {/* The import path is a race-page reader. Offering it on a trip with
+            no organiser is offering a door to nowhere, so fishing gets the
+            honest alternative: type it. */}
+        {fishing ? (
+          <Muted>Add required items by editing this adventure.</Muted>
+        ) : (
+          <Btn kind="ghost"
+               label={kit.length ? 'Re-read the race page' : 'Import from the race page'}
+               onPress={() => onImportKit(adv.title)} />
+        )}
       </Card>
 
       <Card style={{ gap: S[3] }}>

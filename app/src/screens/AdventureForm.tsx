@@ -2,17 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import {
-  ActivitySchema, Place, createAdventure, getActivitySchema, getAdventure,
-  searchPlaces, updateAdventure,
+  Activity, ActivitySchema, Place, createAdventure, getActivitySchema,
+  getAdventure, listActivities, searchPlaces, updateAdventure,
 } from '../api';
 import { dropCache } from '../cache';
 import { AttributeFields, AttrValues } from '../components/AttributeFields';
 import {
-  Banner, Btn, Card, Field, H, Label, Loading, Muted, Screen,
+  Banner, Btn, Card, Chip, Field, H, Label, Loading, Muted, Screen,
 } from '../components/ui';
 import { RA, S, T, TAP, useTheme } from '../theme';
 
-const ACTIVITY = 'trail_running';
+//: The activity a NEW adventure starts as. Not a constant any more — Phase 7
+//: added fishing — but a default, because most people who open this form open
+//: it for the thing they did last time and the picker is one tap away.
+const DEFAULT_ACTIVITY = 'trail_running';
 
 /** YYYY-MM-DD, the only date format this app stores or shows in a field.
  *  An adventure happens on calendar days, so there is no time and no timezone
@@ -31,6 +34,8 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [schema, setSchema] = useState<ActivitySchema | null>(null);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activity, setActivity] = useState<string>(DEFAULT_ACTIVITY);
 
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -48,12 +53,28 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
     let alive = true;
     (async () => {
       try {
-        const s = await getActivitySchema(ACTIVITY);
+        const list = await listActivities();
+        if (!alive) return;
+        setActivities(list);
+
+        // EDITING LOADS THE ADVENTURE FIRST, so the schema fetched is the one
+        // that adventure actually uses. Fetching the default schema and then
+        // correcting it would render the wrong fields for a frame and, worse,
+        // would run AttributeFields over a field set the values do not belong
+        // to.
+        let key = DEFAULT_ACTIVITY;
+        let existing = null;
+        if (adventureId) {
+          existing = await getAdventure(adventureId);
+          if (!alive) return;
+          key = existing.activity_key;
+        }
+        setActivity(key);
+        const s = await getActivitySchema(key);
         if (!alive) return;
         setSchema(s);
-        if (adventureId) {
-          const a = await getAdventure(adventureId);
-          if (!alive) return;
+        if (existing) {
+          const a = existing;
           setTitle(a.title);
           setStartDate(a.start_date.slice(0, 10));
           setEndDate(a.end_date.slice(0, 10));
@@ -105,6 +126,22 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
     return null;
   })();
 
+  /** Switching activity swaps the field set, so the values that belonged to the
+   *  old one have to go with it. Keeping them would leave `distance_km` on a
+   *  fishing trip: invisible on the form, dropped by the server's validator,
+   *  and therefore a screen that disagrees with the record it just saved. */
+  const changeActivity = async (key: string) => {
+    if (key === activity) return;
+    setActivity(key);
+    setAttributes({});
+    setError(null);
+    try {
+      setSchema(await getActivitySchema(key));
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not load that activity.');
+    }
+  };
+
   const save = async () => {
     setError(null);
     if (dateProblem) { setError(dateProblem); return; }
@@ -122,7 +159,7 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
         end_date: endDate || startDate,
         attributes,
       };
-      if (!editing) body.activity_key = ACTIVITY;
+      if (!editing) body.activity_key = activity;
       const saved = editing
         ? await updateAdventure(adventureId!, body)
         : await createAdventure(body);
@@ -142,6 +179,24 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
   return (
     <Screen>
       <H>{editing ? 'Edit adventure' : 'Plan an adventure'}</H>
+
+      {/* ONLY WHEN CREATING. Changing an existing adventure's activity would
+          orphan every attribute on it — a fishing trip's technique and target
+          species are not fields a trail run has — and silently dropping them is
+          the poles bug at the scale of a whole record. Delete and recreate is
+          the honest path, and rare enough not to need a button. */}
+      {!editing && activities.length > 1 && (
+        <Card style={{ gap: S[3] }}>
+          <Label>Activity</Label>
+          <Muted>This decides the fields below and the rules that pack it.</Muted>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S[2] }}>
+            {activities.map(a => (
+              <Chip key={a.key} label={a.name} selected={activity === a.key}
+                    onPress={() => changeActivity(a.key)} />
+            ))}
+          </View>
+        </Card>
+      )}
 
       {!!error && <Banner tone="error" text={error} />}
 
@@ -209,10 +264,16 @@ export default function AdventureForm({ adventureId, onDone, onCancel }: {
       {Object.keys(fields).length > 0 && (
         <Card style={{ gap: S[4] }}>
           <View style={{ gap: S[1] }}>
-            <Label>The run</Label>
+            {/* The label and the sentence both name the activity being
+                edited. "The run" over a fishing trip's trip type and target
+                species is the same mistake as the schema lookup that used to
+                sit behind it. */}
+            <Label>{activity === 'fishing' ? 'The trip' : 'The run'}</Label>
             <Muted>
-              These fields come from the trail running schema on the server, not
-              from this screen.
+              These fields come from the{' '}
+              {(activities.find(a => a.key === activity)?.name ?? activity)
+                .toLowerCase()}{' '}
+              schema on the server, not from this screen.
             </Muted>
           </View>
           <AttributeFields fields={fields} values={attributes} onChange={setAttributes} />

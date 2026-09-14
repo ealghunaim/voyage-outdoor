@@ -320,6 +320,17 @@ export const patchPreferences = (body: object): Promise<Me> =>
 
 export const listActivities = (): Promise<Activity[]> => req('/v1/activities');
 
+/** What the server is, from the server.
+ *
+ *  ASKED RATHER THAN TYPED. The Profile screen carried `Phase = "6 — Polish"`
+ *  and `Activity = "Trail running"` as literals, and both were wrong the day
+ *  fishing was built — the same failure config.ts already records for the
+ *  version string VoyageOS shipped to the App Store reading "v1.0-dev". A fact
+ *  about the server belongs to the server. */
+export const getHealth = (): Promise<
+  { ok: boolean; version: string; phase: number; ai: boolean }
+> => req('/health');
+
 export const getActivitySchema = (key: string): Promise<ActivitySchema> =>
   req(`/v1/activities/${key}/schema`);
 
@@ -600,6 +611,53 @@ export type NotificationPlan = {
 
 export const getNotificationPlan = (today: string): Promise<NotificationPlan> =>
   req(`/v1/notifications/plan${qs({ today })}`);
+
+// ── tackle setups (Phase 7) ─────────────────────────────────────────────────
+//
+// THE SECOND RULE SHAPE. Everything above answers "does this item suit this
+// trip". These answer "does this item work with THAT item" — ROD↔REEL,
+// REEL↔LINE, LINE↔LEADER (§11) — which is the question that breaks tackle and
+// which trail running never had to ask.
+//
+// Nothing is stored: setups are built from the locker on each request. There is
+// no saved "my GT popping setup" because nothing needs one yet.
+
+export type TackleVerdict = {
+  rule_key: string;
+  /** compatible · possibly_compatible · not_recommended · unknown */
+  state: string;
+  message: string;
+  /** WHICH TWO ITEMS the verdict is about. A one-item verdict never had to say. */
+  roles: string[];
+  ruleset: string;
+  detail: Record<string, any>;
+};
+
+export type TackleSetup = {
+  rod: { id: string; name: string; category_key: string;
+         attributes: Record<string, any> } | null;
+  parts: Record<string, { id: string; name: string; category_key: string;
+                          attributes: Record<string, any> } | null>;
+  verdicts: TackleVerdict[];
+  problems: number;
+  unknowns: number;
+};
+
+export type TackleReport = {
+  ruleset: string;
+  adventure?: { id: string; title: string };
+  setups: TackleSetup[];
+  note: string;
+};
+
+export const getLockerTackle = (): Promise<TackleReport> =>
+  req('/v1/tackle/setups');
+
+/** 409 when the adventure is not a fishing trip — "no setups" and "this is a
+ *  running race" are different answers and an empty list would read as the
+ *  first. Callers should catch and render nothing. */
+export const getAdventureTackle = (adventureId: string): Promise<TackleReport> =>
+  req(`/v1/adventures/${adventureId}/tackle`);
 
 // ── gear usage ──────────────────────────────────────────────────────────────
 

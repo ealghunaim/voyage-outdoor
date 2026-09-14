@@ -132,6 +132,20 @@ def rod_line_pe(setup: dict) -> TackleVerdict | None:
     hi = hi if hi is not None else 99.0
     detail = {"line_pe": pe, "rod_pe_min": lo, "rod_pe_max": hi}
 
+    # AN INVERTED WINDOW IS A TYPO, NOT A VERDICT. pe_min 10 with pe_max 2
+    # leaves no value that can satisfy `lo <= pe <= hi`, so every line falls
+    # through to "heavier than this rod is rated for (to PE2)" — a confident
+    # sentence about a rating nobody entered. The write boundary now refuses the
+    # pair, but rows written before that check existed are still in the table
+    # and a PATCH sending one half alone still gets past it. Saying "the rating
+    # is recorded backwards" is the only answer here that a person can act on.
+    if lo > hi:
+        return TackleVerdict(
+            key, UNKNOWN,
+            f"{_name(rod)}'s PE rating is recorded backwards — from PE{lo:g} to "
+            f"PE{hi:g}. Fix the rod's rating and this can be judged.",
+            roles=roles, detail={**detail, "inverted": True})
+
     if lo <= pe <= hi:
         return TackleVerdict(key, COMPATIBLE,
                              f"PE{pe:g} is inside {_name(rod)}'s PE{lo:g}-{hi:g} rating.",
@@ -304,6 +318,14 @@ def lure_vs_rod(setup: dict) -> TackleVerdict | None:
     hi = hi if hi is not None else 10_000.0
     detail = {"lure_g": weight, "cast_min_g": lo, "cast_max_g": hi}
 
+    # The same typo, the other pair on the same rod — see rod_line_pe.
+    if lo > hi:
+        return TackleVerdict(
+            key, UNKNOWN,
+            f"{_name(rod)}'s casting range is recorded backwards — {lo:g} g to "
+            f"{hi:g} g. Fix the rod's range and this can be judged.",
+            roles=roles, detail={**detail, "inverted": True})
+
     if lo <= weight <= hi:
         return TackleVerdict(
             key, COMPATIBLE,
@@ -388,6 +410,95 @@ def evaluate_setup(setup: dict, adventure: dict | None = None) -> list[TackleVer
     return out
 
 
+def _attr_num(item: dict | None, name: str) -> float | None:
+    """An attribute as a number, or None — strings and nulls both mean None."""
+    value = _attr(item, name)
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _tie_break(gear: dict) -> tuple:
+    """Favourite, then lightest, then id — the pack engine's ordering.
+
+    Used to settle candidates the fit score could not separate. A setup that
+    changed between two screens with nothing having changed is worse than one
+    that is merely arbitrary, so the last key is always the id.
+    """
+    return (0 if gear.get("favorite") else 1,
+            gear.get("weight_g") if gear.get("weight_g") is not None else 10 ** 9,
+            str(gear.get("id") or ""))
+
+
+def _line_fit(line: dict, rod: dict | None) -> tuple:
+    """How well a line suits a rod: inside the PE window first, then closest.
+
+    Lower sorts better. A line with no PE recorded ranks last but is still
+    eligible — "nothing recorded" is a thing the rules report as unknown, and
+    dropping it here would hide that behind a silent substitution.
+    """
+    pe = _attr_num(line, "pe")
+    lo, hi = _attr_num(rod, "pe_min"), _attr_num(rod, "pe_max")
+    if pe is None:
+        return (2, 0.0)
+    if lo is None and hi is None:
+        return (1, 0.0)
+    if (lo is None or pe >= lo) and (hi is None or pe <= hi):
+        # Inside the window. Prefer the heavier end of it: for the same rod,
+        # more line strength is the side to err on.
+        return (0, -pe)
+    # Outside it. Prefer the near miss over the wild one, so the verdict names
+    # the closest thing the locker actually has.
+    distance = (lo - pe) if lo is not None and pe < lo else (pe - hi)
+    return (1, distance)
+
+
+def _leader_fit(leader: dict, line: dict | None) -> tuple:
+    """How well a leader suits the chosen main line.
+
+    At or above the main line's breaking strain, closest to the comfortable
+    ratio. Below it sorts worse — that is the case leader_vs_main flags, and it
+    should be reached only when the locker holds nothing better.
+    """
+    lb = _attr_num(leader, "lb_test")
+    main = _attr_num(line, "lb_test")
+    if lb is None or main is None or main <= 0:
+        return (2, 0.0)
+    ratio = lb / main
+    if ratio < LEADER_MIN_RATIO:
+        return (1, LEADER_MIN_RATIO - ratio)
+    return (0, abs(ratio - LEADER_COMFORTABLE_RATIO))
+
+
+def _reel_fit(reel: dict, rod: dict | None) -> tuple:
+    """Whether the reel is rated for the line class the rod is built around."""
+    cap = _attr_num(reel, "pe_capacity")
+    lo, hi = _attr_num(rod, "pe_min"), _attr_num(rod, "pe_max")
+    if cap is None:
+        return (2, 0.0)
+    target = hi if hi is not None else lo
+    if target is None:
+        return (1, 0.0)
+    if cap >= target:
+        return (0, cap - target)          # covers it; prefer the closest fit
+    return (1, target - cap)              # under-rated; prefer the near miss
+
+
+def _lure_fit(lure: dict, rod: dict | None) -> tuple:
+    """Whether the lure is inside what the rod can throw or work."""
+    grams = _attr_num(lure, "weight_g")
+    lo, hi = _attr_num(rod, "cast_weight_min_g"), _attr_num(rod, "cast_weight_max_g")
+    jig = _attr_num(rod, "jig_weight_max_g")
+    if grams is None:
+        return (2, 0.0)
+    if hi is None and jig is None and lo is None:
+        return (1, 0.0)
+    ceiling = max(v for v in (hi, jig) if v is not None) \
+        if (hi is not None or jig is not None) else None
+    if (lo is None or grams >= lo) and (ceiling is None or grams <= ceiling):
+        return (0, 0.0)
+    over = (grams - ceiling) if ceiling is not None and grams > ceiling else (lo - grams)
+    return (1, over)
+
+
 def build_setups(locker: list[dict]) -> list[dict]:
     """Every rod in the locker, paired with the obvious rest of the kit.
 
@@ -396,36 +507,65 @@ def build_setups(locker: list[dict]) -> list[dict]:
     rod with the gear that shares its technique and stops — enough to say "this
     rod, so this reel and this line", which is the question actually being
     asked, and cheap enough to recompute on every screen.
+
+    PAIRED BY FIT, NOT BY ID. The first version filtered candidates on
+    `technique` and then sorted by id. Lines and leaders carry no technique
+    field at all — the registry gives them kind/pe/lb_test/metres — so the
+    filter matched nothing, every role fell through to the id sort, and every
+    rod in the locker got the SAME line and the SAME leader. Run against a real
+    locker it handed a PE6-10 popping rod a PE5 braid while a PE8 braid sat in
+    the same locker, then reported the pairing it had invented as a problem with
+    the person's tackle. Four of the six verdicts on one setup were artefacts.
+
+    So each role is scored against what it has to work with. The scores are
+    plain arithmetic over the same attributes the rules read — no model, nothing
+    learned, same answer every time (§0.5).
+
+    A POOR FIT IS STILL PAIRED. If the locker holds nothing suitable, the least
+    bad candidate is still chosen and the rules still judge it. That is the
+    difference between "you own no line this rod can use", which is worth
+    saying, and a setup quietly built to pass.
+
+    Order matters: the leader is scored against the line already chosen, so line
+    is resolved before leader.
     """
     active = [g for g in locker if g.get("status") == "active"]
     by_category: dict[str, list[dict]] = {}
     for gear in active:
         by_category.setdefault(gear.get("category_key") or "", []).append(gear)
 
-    def pick(category: str, technique: set[str]) -> dict | None:
+    def pick(category: str, technique: set[str], fit) -> dict | None:
         candidates = by_category.get(category) or []
+        if not candidates:
+            return None
         if technique:
+            # Technique still wins where it is recorded — a jigging rod should
+            # not be handed the popping reel while a jigging reel is sitting
+            # there. Only narrows the field when something actually matches.
             matching = [c for c in candidates
                         if set(_attr(c, "technique") or []) & technique]
             if matching:
                 candidates = matching
-        # Same deterministic ordering as the pack engine: favourite, then
-        # lightest, then id. A setup that changed between two screens with
-        # nothing having changed is worse than one that is merely arbitrary.
-        return sorted(candidates, key=lambda g: (
-            0 if g.get("favorite") else 1,
-            g.get("weight_g") if g.get("weight_g") is not None else 10 ** 9,
-            str(g.get("id") or ""),
-        ))[0] if candidates else None
+        return sorted(candidates, key=lambda g: (*fit(g), *_tie_break(g)))[0]
 
     setups = []
     for rod in sorted(by_category.get("rod") or [],
                       key=lambda g: str(g.get("id") or "")):
         technique = set(_attr(rod, "technique") or [])
-        setup = {"rod": rod}
-        for role in ("reel", "line", "leader", "lure"):
-            chosen = pick(role, technique)
-            if chosen:
-                setup[role] = chosen
+        setup: dict = {"rod": rod}
+
+        reel = pick("reel", technique, lambda g: _reel_fit(g, rod))
+        if reel:
+            setup["reel"] = reel
+        line = pick("line", technique, lambda g: _line_fit(g, rod))
+        if line:
+            setup["line"] = line
+        leader = pick("leader", technique, lambda g: _leader_fit(g, line))
+        if leader:
+            setup["leader"] = leader
+        lure = pick("lure", technique, lambda g: _lure_fit(g, rod))
+        if lure:
+            setup["lure"] = lure
+
         setups.append(setup)
     return setups

@@ -167,3 +167,57 @@ def test_a_real_length_kit_line_still_fits():
     out = validate_adventure_attributes(
         "trail_running", {"mandatory_kit": [real]}, partial=True)
     assert out["mandatory_kit"] == [real]
+
+
+# ── min/max pairs, from the live malformed-input run ───────────────────────
+#
+# THE SUITE DID NOT FIND THIS; a malformed body sent at the running endpoint
+# did. pe_min 10 with pe_max 2 was accepted with a 201, because every rule in
+# this file judges ONE FIELD AT A TIME and both numbers are legal on their own.
+# The rod then made the tackle rules answer, for any line at all, "heavier than
+# this rod is rated for (to PE2)" — a transposed pair of digits promoted to
+# advice.
+
+def rod(payload, **kw):
+    return validate_gear_attributes("fishing", "rod", payload, **kw)
+
+
+def test_a_backwards_pe_window_is_refused_by_name():
+    with pytest.raises(HTTPException) as e:
+        rod({"pe_min": 10, "pe_max": 2})
+    assert e.value.status_code == 422
+    assert "pe_min" in e.value.detail
+    assert "wrong way round" in e.value.detail
+
+
+def test_a_backwards_casting_window_is_refused_too():
+    """Derived from the naming convention, so both pairs on the rod are covered
+    without either being named in the checking code."""
+    with pytest.raises(HTTPException) as e:
+        rod({"cast_weight_min_g": 150, "cast_weight_max_g": 60})
+    assert e.value.status_code == 422
+    assert "cast_weight_min_g" in e.value.detail
+
+
+def test_a_window_the_right_way_round_is_untouched():
+    assert rod({"pe_min": 6, "pe_max": 10}) == {"pe_min": 6.0, "pe_max": 10.0}
+
+
+def test_equal_ends_are_a_window_of_one_not_an_error():
+    """Rods rated for a single PE exist. `>` rather than `>=` is the whole
+    difference, and getting it backwards would refuse real gear."""
+    assert rod({"pe_min": 8, "pe_max": 8}) == {"pe_min": 8.0, "pe_max": 8.0}
+
+
+def test_half_a_pair_is_accepted_because_it_cannot_be_judged_here():
+    """A PATCH sending one end alone. The validator never sees the stored
+    record, so this has to pass — which is why tackle.py guards the inverted
+    window again on the way out. The limit is real and named rather than
+    papered over."""
+    assert rod({"pe_min": 10}, partial=True) == {"pe_min": 10.0}
+
+
+def test_an_activity_with_no_paired_fields_is_unaffected():
+    """trail_running has no min/max pair anywhere in its schema. The check must
+    cost it nothing rather than inventing a pairing from a lone field name."""
+    assert gear({"stack_height_mm": 33.0})["stack_height_mm"] == 33.0

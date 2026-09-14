@@ -27,8 +27,12 @@ export default function GearLocker({ onOpen, onAdd }: {
     `gear.${showRetired ? 'all' : 'active'}`,
     () => listGear({ status: showRetired ? 'all' : 'active' }),
   );
-  const categories = useCached<GearCategory[]>('categories.trail_running',
-    () => listCategories('trail_running'));
+  // EVERY category, not one activity's. A locker holds everything you own, and
+  // filtering the filter row by activity would hide the rods from someone who
+  // also runs. listCategories with no activity returns the universal ones plus
+  // every activity's own.
+  const categories = useCached<GearCategory[]>('categories.all',
+    () => listCategories());
 
   // Filtered on the client, deliberately. The server supports both filters, but
   // the whole locker is already in memory and on disk — round-tripping to

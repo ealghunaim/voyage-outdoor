@@ -149,6 +149,26 @@ def _bounded(field: str, spec: dict, n):
     return n
 
 
+def _min_max_pairs(fields: dict) -> list[tuple[str, str]]:
+    """Field pairs that have to be the right way round, found by name.
+
+    DERIVED, NOT DECLARED. The registry already names these consistently —
+    `pe_min`/`pe_max`, `cast_weight_min_g`/`cast_weight_max_g` — so reading the
+    convention costs nothing and means the next activity to follow it is
+    covered without anyone remembering to add a line here. There are only two
+    such pairs today, both on the fishing rod, which is exactly why this is six
+    lines of convention rather than a new registry syntax.
+    """
+    pairs = []
+    for name in fields:
+        if "_min" not in name:
+            continue
+        partner = name.replace("_min", "_max", 1)
+        if partner != name and partner in fields:
+            pairs.append((name, partner))
+    return pairs
+
+
 def _validate(fields: dict, payload: dict | None, *, partial: bool) -> dict:
     if payload is None:
         payload = {}
@@ -163,6 +183,25 @@ def _validate(fields: dict, payload: dict | None, *, partial: bool) -> dict:
         if value is None:
             continue                     # explicit null clears the field
         out[key] = _coerce(key, spec, value)
+
+    # A PAIR CAN BE BACKWARDS WHILE EVERY FIELD IN IT IS LEGAL. A rod written
+    # with pe_min 10 and pe_max 2 passes every check above — both numbers are
+    # inside 0.4-20 — and then makes the rod↔line rule produce a confident
+    # sentence about gear nobody owns: for any line at all, PE is "heavier than
+    # this rod is rated for (to PE2)". A typo in one digit becomes advice.
+    #
+    # A LIMIT WORTH NAMING: this only fires when both halves are in THIS
+    # payload. A PATCH sending pe_min alone cannot be judged here, because
+    # _validate never sees the stored record — so tackle.py's rules guard the
+    # inverted window again on the way out, which is the check that holds no
+    # matter how the data arrived.
+    for low, high in _min_max_pairs(fields):
+        lo, hi = out.get(low), out.get(high)
+        if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) \
+                and lo > hi:
+            raise _bad(low, f"is {lo:g} and {high} is {hi:g} — the pair is the "
+                            f"wrong way round, so nothing could ever fall "
+                            f"inside it")
 
     # On a PATCH the caller is sending a subset by definition, so a required
     # field absent from the payload is absent from this request — not missing
