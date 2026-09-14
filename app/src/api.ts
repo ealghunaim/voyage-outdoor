@@ -216,6 +216,10 @@ export type Pack = {
   items: PackItem[];
   warnings: PackWarningRow[];
   readiness: Readiness;
+  /** Which activity's rules produced this. The screen needs it to say what a
+   *  "required" item is required BY, and asking the pack is better than a
+   *  second request for the adventure the caller already named. */
+  activity_key: string | null;
 };
 
 export type Me = {

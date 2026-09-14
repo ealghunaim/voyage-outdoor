@@ -14,12 +14,24 @@ import {
 } from '../components/ui';
 import { RA, S, T, TAP, tint, useTheme } from '../theme';
 
-/** The order sections appear in, and the only place that order is decided. */
+/** The order sections appear in, and the only place that order is decided.
+ *
+ *  REQUIRED'S BLURB USED TO READ "Race rules, darkness, or distance." Four
+ *  words of trail running printed over an expedition to an uninhabited island
+ *  with no organiser, no darkness rule and no distance — under a list whose
+ *  entries were a leader and a braid. Found by reading the screen, which is
+ *  where the other ten hardcoded activities were found too.
+ *
+ *  The other four blurbs describe what the CLASSIFICATION means rather than
+ *  what a trail race is, so they were already right for both activities and
+ *  are untouched. Only this one named a discipline, and naming the source of a
+ *  requirement is genuinely useful — so it stays specific and becomes a
+ *  function of the activity rather than going vague for everybody. */
 const SECTIONS: { key: Classification; title: string; blurb: string }[] = [
   { key: 'missing', title: 'Missing',
     blurb: 'Required, and nothing in your locker fits.' },
   { key: 'required', title: 'Required',
-    blurb: 'Race rules, darkness, or distance.' },
+    blurb: '' },   // per-activity, see REQUIRED_BLURB
   { key: 'recommended', title: 'Recommended',
     blurb: 'The conditions argue for these.' },
   { key: 'optional', title: 'Optional',
@@ -27,6 +39,17 @@ const SECTIONS: { key: Classification; title: string; blurb: string }[] = [
   { key: 'not_needed', title: 'Leave at home',
     blurb: 'A rule actively says these can stay.' },
 ];
+
+const REQUIRED_BLURB: Record<string, string> = {
+  trail_running: 'Race rules, darkness, or distance.',
+  fishing: 'What the water, the target and the distance from help demand.',
+};
+
+/** Falls back to something true of any activity rather than to trail running.
+ *  The next activity to be built gets a correct sentence before anyone
+ *  remembers to add a line above — which is the failure this whole phase kept
+ *  finding. */
+const REQUIRED_BLURB_FALLBACK = 'Non-negotiable for this trip.';
 
 /** Tapping cycles forward. Four states, one target, no menu — this gets used
  *  in a hallway at 5am with a bag open, not at a desk. Long-press steps back
@@ -229,7 +252,12 @@ export default function Pack({ adventureId, title, onAsk, onBack }: {
                 <Label>{section.title}</Label>
                 <Muted>{items.length}</Muted>
               </View>
-              <Muted>{section.blurb}</Muted>
+              <Muted>
+                {section.key === 'required'
+                  ? (REQUIRED_BLURB[data.activity_key ?? '']
+                     ?? REQUIRED_BLURB_FALLBACK)
+                  : section.blurb}
+              </Muted>
             </View>
             {items.map(item => (
               <ItemRow key={item.id} item={item}

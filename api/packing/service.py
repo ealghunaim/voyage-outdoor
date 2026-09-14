@@ -157,12 +157,20 @@ def generate(db, adventure: dict, user_id: str) -> dict:
 
 
 def read(db, adventure: dict) -> dict:
-    """The stored pack, its warnings, and the readiness figure."""
+    """The stored pack, its warnings, the readiness figure, and the activity.
+
+    ACTIVITY_KEY IS PART OF THE ANSWER, not something the screen should have to
+    fetch separately. The pack screen printed "Race rules, darkness, or
+    distance" over a fishing expedition because it had no way to know what it
+    was showing — the same shape of bug as every other hardcoded activity this
+    phase turned up, and the fix is the same: the record says what it is.
+    """
+    activity_key = adventure.get("activity_key")
     rows = (db.table("packing_lists").select("*")
             .eq("adventure_id", adventure["id"]).execute().data)
     if not rows:
         return {"list": None, "items": [], "warnings": [],
-                "readiness": pack.readiness([])}
+                "readiness": pack.readiness([]), "activity_key": activity_key}
 
     list_row = rows[0]
     items = (db.table("packing_list_items").select("*")
@@ -170,4 +178,4 @@ def read(db, adventure: dict) -> dict:
     warnings = (db.table("pack_warnings").select("*")
                 .eq("list_id", list_row["id"]).execute().data)
     return {"list": list_row, "items": items, "warnings": warnings,
-            "readiness": pack.readiness(items)}
+            "readiness": pack.readiness(items), "activity_key": activity_key}
