@@ -14,7 +14,22 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
  *
  *  EXPO_PUBLIC_ variables are inlined at BUILD time, so an unset one compiles
  *  to undefined and app.json wins. A release build made without the variable
- *  cannot carry a localhost URL no matter what the shell had in it. */
+ *  cannot carry a localhost URL no matter what the shell had in it.
+ *
+ *  WHERE THE VALUE COMES FROM NOW: eas.json, not your shell.
+ *
+ *  The `development` and `simulator` profiles set EXPO_PUBLIC_API_URL to
+ *  localhost:8000; `preview` and `production` set no env at all, so they can
+ *  only resolve to extra.apiUrl below. That split is the reason eas.json is
+ *  worth reading — but EAS validates that file strictly and rejects comment
+ *  keys, so the explanation lives here, beside the fallback it protects.
+ *
+ *  The fallback is SILENT, which is correct for a release and a trap in
+ *  development. This project got bitten by the read-only half of it: a dev
+ *  client restarted without the variable quietly changed servers mid-session,
+ *  a locker went from 19 items to 9 between two screenshots, and the first
+ *  conclusion was that data had been deleted. Nothing had. The Profile
+ *  screen's "Server" row exists because of that afternoon. */
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || extra.apiUrl || '';
 export const APP_KEY = extra.appKey ?? '';
 export const SUPABASE_URL = extra.supabaseUrl ?? '';

@@ -55,7 +55,11 @@
       "apiUrl": "https://voyage-outdoor-api.onrender.com",
       "appKey": "58767068edb0a8d6cd5a58b62e934441",
       "supabaseUrl": "https://arrhwtdhhuyeuqqkqgri.supabase.co",
-      "supabaseAnonKey": "sb_publishable_wFC9wNWR0Ic5dRgiSnEfIw_vTtNW7MA"
-    }
+      "supabaseAnonKey": "sb_publishable_wFC9wNWR0Ic5dRgiSnEfIw_vTtNW7MA",
+      "eas": {
+        "projectId": "cb11b97d-b31b-4331-ae93-5500819c4ce6"
+      }
+    },
+    "owner": "dremyg"
   }
 }

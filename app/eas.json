@@ -1,29 +1,4 @@
 {
-  "//": [
-    "Parallel to VoyageOS's eas.json, with two deliberate differences.",
-    "",
-    "1. NO EXPO_PUBLIC_PURCHASE_HARNESS. That flag exists in VoyageOS because",
-    "   VoyageOS sells something. Voyage Outdoor does not, so carrying the",
-    "   variable across would be cargo — a flag nothing reads is a flag someone",
-    "   later has to work out the meaning of.",
-    "",
-    "2. EXPO_PUBLIC_API_URL IS PINNED TO THE DEV PROFILES AND ABSENT FROM",
-    "   production. This is the whole reason the file is worth reading.",
-    "",
-    "   EXPO_PUBLIC_ variables are inlined at BUILD time. app/src/config.ts",
-    "   falls back from EXPO_PUBLIC_API_URL to app.json's extra.apiUrl with no",
-    "   warning, which is right for a release and a trap in development: a",
-    "   build made in a shell that happened to have the variable set ships",
-    "   pointing at a laptop, and looks completely normal until it is on",
-    "   somebody else's phone. Until now the value was typed on the command",
-    "   line for every dev run, which is exactly the habit that eventually",
-    "   types it once too often.",
-    "",
-    "   Declaring it here means the dev loop stops depending on shell history,",
-    "   and production's SILENCE becomes meaningful rather than accidental —",
-    "   the production profile sets no env at all, so it can only resolve to",
-    "   app.json's Render URL."
-  ],
   "cli": {
     "version": ">= 13.0.0",
     "appVersionSource": "remote"
