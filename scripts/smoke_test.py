@@ -808,6 +808,21 @@ with httpx.Client(timeout=30) as c:
     # delete cascade, and every table here hangs off profiles the same way. So
     # two deletes remove the accounts, their gear, their usage and their
     # maintenance — which is also a live proof that the cascade works.
+    #
+    # ONE TABLE DELIBERATELY DOES NOT CASCADE: ai_runs.
+    #
+    # Its user_id is a plain uuid with no foreign key (0001), so a run's rows
+    # outlive the account that made them. That is not a leak to be tidied up —
+    # ai_runs is the COST LEDGER, and the comment introducing it says it exists
+    # from the first commit so spend can be measured against a baseline. Money
+    # spent on a key is spent whether or not the account still exists; deleting
+    # the rows would make the total read lower than the invoice.
+    #
+    # Audited on 2026-09-14: 57 of 61 rows belonged to 18 deleted smoke-test
+    # accounts, $0.94 of $1.19 total spend. Every other table was clean. If you
+    # are chasing orphans, expect to find these and leave them alone — but note
+    # that each full run of this script costs roughly $0.10 in real model
+    # credit, which is the actual reason not to run it in a loop.
     print("\nTEARDOWN")
     listed = c.get(f"{SB}/auth/v1/admin/users", headers=admin).json().get("users", [])
     removed = 0
